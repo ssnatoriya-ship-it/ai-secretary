@@ -497,6 +497,7 @@ function renderAuth() {
       <div class="form-group"><label>メールアドレス</label><input id="auth-email" type="email" placeholder="you@example.com"></div>
       <div class="form-group"><label>パスワード</label><input id="auth-password" type="password" placeholder="6文字以上"></div>
       <button class="btn btn-primary" style="width:100%;padding:12px" onclick="handleAuth('login')">ログイン</button>
+      <div class="auth-toggle" id="auth-forgot"><a onclick="showResetPassword()">パスワードを忘れた方</a></div>
       <div class="auth-toggle" id="auth-toggle">アカウントをお持ちでない方は<a onclick="switchAuthMode()">新規登録</a></div>
     </div>`;
   App._authMode = 'login';
@@ -541,6 +542,49 @@ async function handleAuth(mode) {
   }
   App.user = result.data.user;
   initApp();
+}
+
+function showResetPassword() {
+  document.getElementById('app-root').innerHTML = `
+    <div class="auth-container">
+      <h2>パスワードリセット</h2>
+      <div id="auth-error"></div>
+      <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px">登録済みのメールアドレスを入力してください。パスワードリセット用のリンクを送信します。</p>
+      <div class="form-group"><label>メールアドレス</label><input id="reset-email" type="email" placeholder="you@example.com"></div>
+      <button class="btn btn-primary" style="width:100%;padding:12px" onclick="sendResetEmail()">リセットメールを送信</button>
+      <div class="auth-toggle"><a onclick="renderAuth()">ログイン画面に戻る</a></div>
+    </div>`;
+}
+
+async function sendResetEmail() {
+  const email = document.getElementById('reset-email').value.trim();
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  if (!email) { errEl.textContent = 'メールアドレスを入力してください'; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin });
+  if (error) { errEl.textContent = error.message; return; }
+  errEl.innerHTML = '<span style="color:var(--success)">リセットメールを送信しました。メールのリンクからパスワードを再設定してください。</span>';
+}
+
+function showUpdatePassword() {
+  document.getElementById('app-root').innerHTML = `
+    <div class="auth-container">
+      <h2>新しいパスワードを設定</h2>
+      <div id="auth-error"></div>
+      <div class="form-group"><label>新しいパスワード</label><input id="new-password" type="password" placeholder="6文字以上"></div>
+      <button class="btn btn-primary" style="width:100%;padding:12px" onclick="updatePassword()">パスワードを更新</button>
+    </div>`;
+}
+
+async function updatePassword() {
+  const password = document.getElementById('new-password').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  if (!password || password.length < 6) { errEl.textContent = 'パスワードは6文字以上にしてください'; return; }
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) { errEl.textContent = error.message; return; }
+  errEl.innerHTML = '<span style="color:var(--success)">パスワードを更新しました。</span>';
+  setTimeout(() => { const s = sb.auth.getSession().then(r => { if(r.data.session) { App.user = r.data.session.user; initApp(); } }); }, 1500);
 }
 
 async function handleLogout() {
@@ -1205,7 +1249,9 @@ async function initApp() {
     renderAuth();
   }
   sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) {
+    if (event === 'PASSWORD_RECOVERY') {
+      showUpdatePassword();
+    } else if (event === 'SIGNED_IN' && session) {
       App.user = session.user;
       initApp();
     } else if (event === 'SIGNED_OUT') {
