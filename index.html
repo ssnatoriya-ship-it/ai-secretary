@@ -437,7 +437,59 @@ function renderDashboard() {
         <div class="stat-label">保存済みメモ</div>
       </div>
     </div>
+    <div class="card ai-assistant-card" style="margin-top:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="font-size:16px;font-weight:600">&#9733; AIアシスタント</h3>
+        <button class="btn-ai" onclick="askAssistant()">アドバイスをもらう</button>
+      </div>
+      <div id="assistant-area">
+        <p style="color:var(--text-muted);font-size:14px">ボタンを押すと、予定・タスク・メモをもとにAIがアドバイスします。</p>
+      </div>
+    </div>
   `;
+}
+
+async function askAssistant() {
+  const area = document.getElementById('assistant-area');
+  area.innerHTML = '<div class="ai-result"><div class="loading">考え中...</div></div>';
+
+  const today = dateStr(new Date());
+  const schedules = Store.get('schedules');
+  const todaySchedules = schedules.filter(s => s.date === today);
+  const upcomingSchedules = schedules.filter(s => s.date >= today).sort((a,b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)).slice(0, 10);
+  const tasks = Store.get('tasks');
+  const pendingTasks = tasks.filter(t => !t.done);
+  const memos = Store.get('memos').slice(-5);
+
+  const context = `今日は${formatDateJP(new Date())}です。
+
+【今日の予定】
+${todaySchedules.length ? todaySchedules.map(s => `・${s.startTime}${s.endTime ? '〜'+s.endTime : ''} ${s.title}${s.description ? '（'+s.description+'）' : ''}`).join('\n') : 'なし'}
+
+【今後の予定】
+${upcomingSchedules.length ? upcomingSchedules.map(s => `・${s.date} ${s.startTime} ${s.title}`).join('\n') : 'なし'}
+
+【未完了タスク】
+${pendingTasks.length ? pendingTasks.map(t => `・[${({high:'高',medium:'中',low:'低'})[t.priority]||'中'}] ${t.title}${t.dueDate ? '（期限:'+t.dueDate+'）' : ''}`).join('\n') : 'なし'}
+
+【最近のメモ】
+${memos.length ? memos.map(m => `・${m.title}: ${(m.content||'').slice(0,100)}`).join('\n') : 'なし'}`;
+
+  try {
+    const result = await callClaude(
+      `あなたは優秀なAI秘書です。以下のユーザーの予定・タスク・メモを確認して、簡潔にアドバイスしてください。
+・今日やるべきことの整理
+・期限が近いタスクへの注意喚起
+・予定の準備に必要なこと
+・全体的な優先順位の提案
+親しみやすい丁寧な口調で、箇条書きで簡潔に答えてください。
+
+${context}`
+    );
+    area.innerHTML = `<div class="ai-result"><div style="white-space:pre-wrap;line-height:1.8">${esc(result)}</div></div>`;
+  } catch (e) {
+    area.innerHTML = `<div class="ai-result" style="border-color:var(--danger)"><h4 style="color:var(--danger)">エラー</h4>${esc(e.message)}</div>`;
+  }
 }
 
 // Schedule
