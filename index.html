@@ -1099,8 +1099,7 @@ async function saveApiKeyToDb(key) {
 async function callClaude(prompt) {
   const apiKey = getApiKey();
   if (!apiKey) {
-    alert('APIキーが設定されていません。設定タブからClaude APIキーを入力してください。');
-    return null;
+    throw new Error('APIキーが設定されていません。設定タブからClaude APIキーを入力してください。');
   }
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
