@@ -4,7 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI秘書</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+.auth-container {
+  max-width: 400px;
+  margin: 80px auto;
+  padding: 32px;
+  background: var(--card);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+}
+.auth-container h2 { text-align: center; margin-bottom: 24px; font-size: 22px; }
+.auth-toggle { text-align: center; margin-top: 16px; font-size: 14px; color: var(--text-muted); }
+.auth-toggle a { color: var(--primary); cursor: pointer; text-decoration: underline; }
+.auth-error { color: var(--danger); font-size: 13px; margin-bottom: 12px; text-align: center; }
+.user-info { font-size: 13px; color: var(--text-muted); margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.user-info button { background: none; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.loading-screen { text-align: center; padding: 80px 20px; color: var(--text-muted); font-size: 16px; }
+
 :root {
   --primary: #4f46e5;
   --primary-light: #818cf8;
@@ -395,29 +412,150 @@ main {
 <header>
   <span style="font-size:24px">&#128188;</span>
   <h1>AI秘書</h1>
+  <div class="user-info" id="user-info"></div>
 </header>
 
-<div class="app-layout">
-  <nav id="nav"></nav>
-  <main id="main"></main>
-</div>
+<div id="app-root"></div>
 
 <script>
-const App = {
+var SUPABASE_URL = 'https://yipvyvzqobfwjjaowwah.supabase.co';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpcHZ5dnpxb2Jmd2pqYW93d2FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NjE1MjMsImV4cCI6MjA5ODIzNzUyM30.3lU1TogK3PPTvvFQ53pB_ipwzT3tIUoiI0v8G7NGci4';
+
+var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+var App = {
   currentView: 'dashboard',
   scheduleDate: new Date(),
   taskFilter: 'all',
+  user: null,
+  cache: { schedules: null, tasks: null, memos: null },
 };
 
 const Store = {
-  _key(name) { return `secretary_${name}`; },
-  get(name) { return JSON.parse(localStorage.getItem(this._key(name)) || '[]'); },
-  set(name, data) { localStorage.setItem(this._key(name), JSON.stringify(data)); },
-  add(name, item) { const d = this.get(name); item.id = Date.now().toString(36) + Math.random().toString(36).slice(2,6); item.createdAt = new Date().toISOString(); d.push(item); this.set(name, d); return item; },
-  update(name, id, updates) { const d = this.get(name); const i = d.findIndex(x => x.id === id); if (i >= 0) { Object.assign(d[i], updates, { updatedAt: new Date().toISOString() }); this.set(name, d); } },
-  remove(name, id) { this.set(name, this.get(name).filter(x => x.id !== id)); },
-  find(name, id) { return this.get(name).find(x => x.id === id); },
+  async get(name) {
+    const colMap = { schedules: 'schedules', tasks: 'tasks', memos: 'memos' };
+    const table = colMap[name];
+    const { data, error } = await sb.from(table).select('*').order('created_at', { ascending: true });
+    if (error) { console.error(error); return []; }
+    return data.map(r => Store._fromDb(name, r));
+  },
+  _fromDb(name, r) {
+    if (name === 'schedules') return { id: r.id, title: r.title, date: r.date, startTime: r.start_time || '', endTime: r.end_time || '', description: r.description || '', createdAt: r.created_at, updatedAt: r.updated_at };
+    if (name === 'tasks') return { id: r.id, title: r.title, priority: r.priority || 'medium', dueDate: r.due_date || '', description: r.description || '', done: r.done || false, createdAt: r.created_at, updatedAt: r.updated_at };
+    if (name === 'memos') return { id: r.id, title: r.title, content: r.content || '', createdAt: r.created_at, updatedAt: r.updated_at };
+    return r;
+  },
+  _toDb(name, item) {
+    const base = { user_id: App.user.id };
+    if (name === 'schedules') return { ...base, title: item.title, date: item.date, start_time: item.startTime, end_time: item.endTime, description: item.description };
+    if (name === 'tasks') return { ...base, title: item.title, priority: item.priority, due_date: item.dueDate || null, description: item.description, done: item.done || false };
+    if (name === 'memos') return { ...base, title: item.title, content: item.content };
+    return item;
+  },
+  async add(name, item) {
+    const row = Store._toDb(name, item);
+    const { data, error } = await sb.from(name).insert(row).select().single();
+    if (error) { console.error(error); alert('保存に失敗しました: ' + error.message); return null; }
+    return Store._fromDb(name, data);
+  },
+  async update(name, id, updates) {
+    const partial = {};
+    if (updates.title !== undefined) partial.title = updates.title;
+    if (updates.description !== undefined) partial.description = updates.description;
+    if (updates.content !== undefined) partial.content = updates.content;
+    if (updates.done !== undefined) partial.done = updates.done;
+    if (name === 'schedules') {
+      if (updates.date !== undefined) partial.date = updates.date;
+      if (updates.startTime !== undefined) partial.start_time = updates.startTime;
+      if (updates.endTime !== undefined) partial.end_time = updates.endTime;
+    }
+    if (name === 'tasks') {
+      if (updates.priority !== undefined) partial.priority = updates.priority;
+      if (updates.dueDate !== undefined) partial.due_date = updates.dueDate || null;
+    }
+    partial.updated_at = new Date().toISOString();
+    const { error } = await sb.from(name).update(partial).eq('id', id);
+    if (error) { console.error(error); alert('更新に失敗しました'); }
+  },
+  async remove(name, id) {
+    const { error } = await sb.from(name).delete().eq('id', id);
+    if (error) { console.error(error); alert('削除に失敗しました'); }
+  },
+  async find(name, id) {
+    const { data, error } = await sb.from(name).select('*').eq('id', id).single();
+    if (error) return null;
+    return Store._fromDb(name, data);
+  },
 };
+
+// Auth
+function renderAuth() {
+  document.getElementById('app-root').innerHTML = `
+    <div class="auth-container" id="auth-box">
+      <h2>&#128188; AI秘書にログイン</h2>
+      <div id="auth-error"></div>
+      <div class="form-group"><label>メールアドレス</label><input id="auth-email" type="email" placeholder="you@example.com"></div>
+      <div class="form-group"><label>パスワード</label><input id="auth-password" type="password" placeholder="6文字以上"></div>
+      <button class="btn btn-primary" style="width:100%;padding:12px" onclick="handleAuth('login')">ログイン</button>
+      <div class="auth-toggle" id="auth-toggle">アカウントをお持ちでない方は<a onclick="switchAuthMode()">新規登録</a></div>
+    </div>`;
+  App._authMode = 'login';
+}
+
+function switchAuthMode() {
+  App._authMode = App._authMode === 'login' ? 'signup' : 'login';
+  const btn = document.querySelector('.auth-container .btn-primary');
+  const toggle = document.getElementById('auth-toggle');
+  if (App._authMode === 'signup') {
+    btn.textContent = '新規登録';
+    btn.setAttribute('onclick', "handleAuth('signup')");
+    toggle.innerHTML = 'すでにアカウントをお持ちの方は<a onclick="switchAuthMode()">ログイン</a>';
+  } else {
+    btn.textContent = 'ログイン';
+    btn.setAttribute('onclick', "handleAuth('login')");
+    toggle.innerHTML = 'アカウントをお持ちでない方は<a onclick="switchAuthMode()">新規登録</a>';
+  }
+}
+
+async function handleAuth(mode) {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; return; }
+  if (password.length < 6) { errEl.textContent = 'パスワードは6文字以上にしてください'; return; }
+
+  let result;
+  if (mode === 'signup') {
+    result = await sb.auth.signUp({ email, password });
+    if (!result.error && result.data.user) {
+      errEl.innerHTML = '<span style="color:var(--success)">登録完了！確認メールを送信しました。メールのリンクをクリックしてからログインしてください。</span>';
+      return;
+    }
+  } else {
+    result = await sb.auth.signInWithPassword({ email, password });
+  }
+  if (result.error) {
+    errEl.textContent = result.error.message;
+    return;
+  }
+  App.user = result.data.user;
+  initApp();
+}
+
+async function handleLogout() {
+  await sb.auth.signOut();
+  App.user = null;
+  document.getElementById('user-info').innerHTML = '';
+  renderAuth();
+}
+
+function showAppLayout() {
+  document.getElementById('app-root').innerHTML = `<div class="app-layout"><nav id="nav"></nav><main id="main"></main></div>`;
+  document.getElementById('user-info').innerHTML = `
+    <span>${esc(App.user.email)}</span>
+    <button onclick="handleLogout()">ログアウト</button>`;
+}
 
 const navItems = [
   { id: 'dashboard', icon: '&#9679;', label: 'ダッシュボード' },
@@ -461,12 +599,14 @@ function dateStr(d) {
 }
 
 // Dashboard
-function renderDashboard() {
+async function renderDashboard() {
+  document.getElementById('main').innerHTML = '<div class="loading-screen">読み込み中...</div>';
   const today = dateStr(new Date());
-  const schedules = Store.get('schedules').filter(s => s.date === today).sort((a,b) => a.startTime.localeCompare(b.startTime));
-  const tasks = Store.get('tasks');
+  const allSchedules = await Store.get('schedules');
+  const schedules = allSchedules.filter(s => s.date === today).sort((a,b) => a.startTime.localeCompare(b.startTime));
+  const tasks = await Store.get('tasks');
   const pendingTasks = tasks.filter(t => !t.done);
-  const memos = Store.get('memos');
+  const memos = await Store.get('memos');
 
   document.getElementById('main').innerHTML = `
     <div class="section-header"><h2>ダッシュボード</h2><span style="color:var(--text-muted);font-size:14px">${formatDateJP(new Date())}</span></div>
@@ -520,12 +660,12 @@ async function askAssistant() {
   area.innerHTML = '<div class="ai-result"><div class="loading">考え中...</div></div>';
 
   const today = dateStr(new Date());
-  const schedules = Store.get('schedules');
+  const schedules = await Store.get('schedules');
   const todaySchedules = schedules.filter(s => s.date === today);
   const upcomingSchedules = schedules.filter(s => s.date >= today).sort((a,b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)).slice(0, 10);
-  const tasks = Store.get('tasks');
+  const tasks = await Store.get('tasks');
   const pendingTasks = tasks.filter(t => !t.done);
-  const memos = Store.get('memos').slice(-5);
+  const memos = (await Store.get('memos')).slice(-5);
 
   const context = `今日は${formatDateJP(new Date())}です。
 
@@ -620,8 +760,8 @@ async function processVoiceCommand(text) {
   responseArea.innerHTML = '<div class="voice-response"><div class="loading">考え中...</div></div>';
 
   const today = dateStr(new Date());
-  const schedules = Store.get('schedules');
-  const tasks = Store.get('tasks').filter(t => !t.done);
+  const schedules = await Store.get('schedules');
+  const tasks = (await Store.get('tasks')).filter(t => !t.done);
 
   const prompt = `あなたはAI秘書です。ユーザーの音声指示に対応してください。
 今日は${formatDateJP(new Date())}です。
@@ -654,18 +794,18 @@ ${tasks.map(t => `・[${({high:'高',medium:'中',low:'低'})[t.priority]||'中'
         const parsed = JSON.parse(jsonMatch[0]);
         actions = Array.isArray(parsed) ? parsed : [parsed];
       }
-    } catch {}
+    } catch(e) {}
 
     let messages = [];
     for (const a of actions) {
       if (a.action === 'add_schedule') {
-        Store.add('schedules', { title: a.title, date: a.date, startTime: a.startTime || '', endTime: a.endTime || '', description: a.description || '' });
+        await Store.add('schedules', { title: a.title, date: a.date, startTime: a.startTime || '', endTime: a.endTime || '', description: a.description || '' });
         messages.push(`予定「${a.title}」を${a.date}に追加しました。`);
       } else if (a.action === 'add_task') {
-        Store.add('tasks', { title: a.title, priority: a.priority || 'medium', dueDate: a.dueDate || '', description: '', done: false });
+        await Store.add('tasks', { title: a.title, priority: a.priority || 'medium', dueDate: a.dueDate || '', description: '', done: false });
         messages.push(`タスク「${a.title}」を追加しました。`);
       } else if (a.action === 'add_memo') {
-        Store.add('memos', { title: a.title, content: a.content || '' });
+        await Store.add('memos', { title: a.title, content: a.content || '' });
         messages.push(`メモ「${a.title}」を保存しました。`);
       }
     }
@@ -686,10 +826,12 @@ ${tasks.map(t => `・[${({high:'高',medium:'中',low:'低'})[t.priority]||'中'
 }
 
 // Schedule
-function renderSchedule() {
+async function renderSchedule() {
+  document.getElementById('main').innerHTML = '<div class="loading-screen">読み込み中...</div>';
   const d = App.scheduleDate;
   const ds = dateStr(d);
-  const items = Store.get('schedules').filter(s => s.date === ds).sort((a,b) => a.startTime.localeCompare(b.startTime));
+  const allSchedules = await Store.get('schedules');
+  const items = allSchedules.filter(s => s.date === ds).sort((a,b) => a.startTime.localeCompare(b.startTime));
 
   document.getElementById('main').innerHTML = `
     <div class="section-header">
@@ -723,8 +865,8 @@ function changeDate(offset) {
   renderSchedule();
 }
 
-function showScheduleModal(editId) {
-  const item = editId ? Store.find('schedules', editId) : null;
+async function showScheduleModal(editId) {
+  const item = editId ? await Store.find('schedules', editId) : null;
   const ds = dateStr(App.scheduleDate);
   showModal(`
     <h3>${item ? '予定を編集' : '予定を追加'}</h3>
@@ -742,7 +884,7 @@ function showScheduleModal(editId) {
   `);
 }
 
-function saveSchedule(editId) {
+async function saveSchedule(editId) {
   const data = {
     title: document.getElementById('f-title').value.trim(),
     date: document.getElementById('f-date').value,
@@ -751,15 +893,16 @@ function saveSchedule(editId) {
     description: document.getElementById('f-desc').value.trim(),
   };
   if (!data.title || !data.date) return alert('タイトルと日付は必須です');
-  if (editId) Store.update('schedules', editId, data);
-  else Store.add('schedules', data);
+  if (editId) await Store.update('schedules', editId, data);
+  else await Store.add('schedules', data);
   closeModal();
   renderSchedule();
 }
 
 // Tasks
-function renderTasks() {
-  let items = Store.get('tasks');
+async function renderTasks() {
+  document.getElementById('main').innerHTML = '<div class="loading-screen">読み込み中...</div>';
+  let items = await Store.get('tasks');
   if (App.taskFilter === 'pending') items = items.filter(t => !t.done);
   else if (App.taskFilter === 'done') items = items.filter(t => t.done);
   items.sort((a,b) => {
@@ -789,14 +932,14 @@ function renderTasks() {
   `;
 }
 
-function toggleTask(id) {
-  const t = Store.find('tasks', id);
-  if (t) Store.update('tasks', id, { done: !t.done });
+async function toggleTask(id) {
+  const t = await Store.find('tasks', id);
+  if (t) await Store.update('tasks', id, { done: !t.done });
   renderTasks();
 }
 
-function showTaskModal(editId) {
-  const item = editId ? Store.find('tasks', editId) : null;
+async function showTaskModal(editId) {
+  const item = editId ? await Store.find('tasks', editId) : null;
   showModal(`
     <h3>${item ? 'タスクを編集' : 'タスクを追加'}</h3>
     <div class="form-group"><label>タイトル</label><input id="f-title" value="${item ? esc(item.title) : ''}"></div>
@@ -818,7 +961,7 @@ function showTaskModal(editId) {
   `);
 }
 
-function saveTask(editId) {
+async function saveTask(editId) {
   const data = {
     title: document.getElementById('f-title').value.trim(),
     priority: document.getElementById('f-priority').value,
@@ -826,15 +969,16 @@ function saveTask(editId) {
     description: document.getElementById('f-desc').value.trim(),
   };
   if (!data.title) return alert('タイトルは必須です');
-  if (editId) Store.update('tasks', editId, data);
-  else Store.add('tasks', { ...data, done: false });
+  if (editId) await Store.update('tasks', editId, data);
+  else await Store.add('tasks', { ...data, done: false });
   closeModal();
   renderTasks();
 }
 
 // Memos
-function renderMemos() {
-  const items = Store.get('memos').sort((a,b) => new Date(b.updatedAt||b.createdAt) - new Date(a.updatedAt||a.createdAt));
+async function renderMemos() {
+  document.getElementById('main').innerHTML = '<div class="loading-screen">読み込み中...</div>';
+  const items = (await Store.get('memos')).sort((a,b) => new Date(b.updatedAt||b.createdAt) - new Date(a.updatedAt||a.createdAt));
 
   document.getElementById('main').innerHTML = `
     <div class="section-header">
@@ -854,8 +998,8 @@ function renderMemos() {
   `;
 }
 
-function showMemoModal(editId) {
-  const item = editId ? Store.find('memos', editId) : null;
+async function showMemoModal(editId) {
+  const item = editId ? await Store.find('memos', editId) : null;
   showModal(`
     <h3>${item ? 'メモを編集' : 'メモを追加'}</h3>
     ${item ? `<div class="ai-actions">
@@ -872,14 +1016,14 @@ function showMemoModal(editId) {
   `);
 }
 
-function saveMemo(editId) {
+async function saveMemo(editId) {
   const data = {
     title: document.getElementById('f-title').value.trim(),
     content: document.getElementById('f-content').value.trim(),
   };
   if (!data.title) return alert('タイトルは必須です');
-  if (editId) Store.update('memos', editId, data);
-  else Store.add('memos', data);
+  if (editId) await Store.update('memos', editId, data);
+  else await Store.add('memos', data);
   closeModal();
   renderMemos();
 }
@@ -918,7 +1062,7 @@ async function callClaude(prompt) {
 }
 
 async function aiSummarize(memoId) {
-  const memo = Store.find('memos', memoId);
+  const memo = await Store.find('memos', memoId);
   if (!memo) return;
   const area = document.getElementById('ai-result-area');
   area.innerHTML = '<div class="ai-result"><div class="loading">要約を生成中...</div></div>';
@@ -933,7 +1077,7 @@ async function aiSummarize(memoId) {
 }
 
 async function aiToTasks(memoId) {
-  const memo = Store.find('memos', memoId);
+  const memo = await Store.find('memos', memoId);
   if (!memo) return;
   const area = document.getElementById('ai-result-area');
   area.innerHTML = '<div class="ai-result"><div class="loading">タスクを抽出中...</div></div>';
@@ -945,7 +1089,7 @@ async function aiToTasks(memoId) {
     try {
       const jsonMatch = result.match(/\[[\s\S]*\]/);
       tasks = JSON.parse(jsonMatch ? jsonMatch[0] : result);
-    } catch { tasks = []; }
+    } catch(e) { tasks = []; }
     if (!tasks.length) {
       area.innerHTML = '<div class="ai-result"><h4>&#9745; タスク抽出</h4>タスクが見つかりませんでした。</div>';
       return;
@@ -967,16 +1111,16 @@ async function aiToTasks(memoId) {
   }
 }
 
-function registerAiTasks() {
+async function registerAiTasks() {
   const tasks = App._pendingTasks || [];
   let count = 0;
-  tasks.forEach((t, i) => {
+  for (let i = 0; i < tasks.length; i++) {
     const cb = document.getElementById(`ai-task-${i}`);
     if (cb && cb.checked) {
-      Store.add('tasks', { title: t.title, priority: t.priority || 'medium', dueDate: '', description: '', done: false });
+      await Store.add('tasks', { title: tasks[i].title, priority: tasks[i].priority || 'medium', dueDate: '', description: '', done: false });
       count++;
     }
-  });
+  }
   delete App._pendingTasks;
   const area = document.getElementById('ai-result-area');
   area.innerHTML = `<div class="ai-result"><h4 style="color:var(--success)">&#10003; ${count}件のタスクを登録しました</h4></div>`;
@@ -1021,9 +1165,9 @@ function clearApiKey() {
 }
 
 // Shared
-function deleteItem(store, id, renderFn) {
+async function deleteItem(store, id, renderFn) {
   if (confirm('削除しますか?')) {
-    Store.remove(store, id);
+    await Store.remove(store, id);
     window[renderFn]();
   }
 }
@@ -1046,8 +1190,31 @@ function esc(s) {
   return d.innerHTML;
 }
 
-renderNav();
-renderMain();
+async function initApp() {
+  showAppLayout();
+  renderNav();
+  renderMain();
+}
+
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    App.user = session.user;
+    initApp();
+  } else {
+    renderAuth();
+  }
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      App.user = session.user;
+      initApp();
+    } else if (event === 'SIGNED_OUT') {
+      App.user = null;
+      document.getElementById('user-info').innerHTML = '';
+      renderAuth();
+    }
+  });
+})();
 </script>
 </body>
 </html>
