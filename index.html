@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI秘書</title>
+<style>
+:root {
+  --primary: #4f46e5;
+  --primary-light: #818cf8;
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+header {
+  background: var(--primary);
+  color: white;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+header h1 { font-size: 20px; font-weight: 600; }
+
+.app-layout {
+  display: flex;
+  height: calc(100vh - 56px);
+}
+
+nav {
+  width: 220px;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  padding: 16px 0;
+  flex-shrink: 0;
+}
+
+nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 20px;
+  border: none;
+  background: none;
+  font-size: 15px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+
+nav button:hover { background: #f1f5f9; color: var(--text); }
+nav button.active { background: #eef2ff; color: var(--primary); font-weight: 600; border-right: 3px solid var(--primary); }
+nav button .icon { font-size: 18px; width: 24px; text-align: center; }
+
+main {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.section-header h2 { font-size: 22px; font-weight: 600; }
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.btn-primary { background: var(--primary); color: white; }
+.btn-primary:hover { background: #4338ca; }
+.btn-danger { background: var(--danger); color: white; }
+.btn-danger:hover { background: #dc2626; }
+.btn-ghost { background: none; color: var(--text-muted); padding: 4px 8px; }
+.btn-ghost:hover { color: var(--danger); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: box-shadow 0.15s;
+}
+
+.card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+
+/* Dashboard */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.dashboard-card { padding: 20px; }
+.dashboard-card h3 { font-size: 14px; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat { font-size: 32px; font-weight: 700; color: var(--primary); }
+.stat-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+.upcoming-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.upcoming-item:last-child { border-bottom: none; }
+.upcoming-time { font-size: 13px; color: var(--primary); font-weight: 600; min-width: 50px; }
+.upcoming-title { font-size: 14px; }
+
+/* Schedule */
+.schedule-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.schedule-date-nav button {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.schedule-date-nav span { font-size: 18px; font-weight: 600; }
+
+.schedule-item {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.schedule-item .time {
+  min-width: 80px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary);
+  padding-top: 2px;
+}
+
+.schedule-item .content { flex: 1; }
+.schedule-item .title { font-size: 15px; font-weight: 500; }
+.schedule-item .desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.schedule-item .actions { display: flex; gap: 4px; }
+
+/* Tasks */
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.task-item input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.task-item.done .task-text { text-decoration: line-through; color: var(--text-muted); }
+.task-text { flex: 1; font-size: 15px; }
+.task-priority {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.priority-high { background: #fef2f2; color: var(--danger); }
+.priority-medium { background: #fffbeb; color: var(--warning); }
+.priority-low { background: #f0fdf4; color: var(--success); }
+
+.task-due { font-size: 12px; color: var(--text-muted); }
+
+/* Memos */
+.memo-item .memo-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.memo-item .memo-preview { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+.memo-item .memo-date { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 24px;
+  width: 90%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal h3 { font-size: 18px; margin-bottom: 20px; }
+
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.form-group textarea { min-height: 120px; resize: vertical; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 15px; }
+
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filter-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--card);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+.ai-actions { display: flex; gap: 8px; margin-bottom: 16px; }
+.btn-ai {
+  padding: 8px 14px;
+  border: 1px solid var(--primary-light);
+  border-radius: 8px;
+  background: #eef2ff;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-ai:hover { background: var(--primary); color: white; }
+.btn-ai:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ai-result {
+  background: #eef2ff;
+  border: 1px solid var(--primary-light);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ai-result h4 { font-size: 13px; color: var(--primary); margin-bottom: 8px; }
+.ai-result .loading { color: var(--text-muted); font-style: italic; }
+
+.ai-task-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ai-task-item:last-child { border-bottom: none; }
+.ai-task-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.ai-task-item span { flex: 1; font-size: 14px; }
+
+.settings-section { max-width: 500px; }
+.settings-section .form-group { margin-bottom: 20px; }
+.api-key-input { font-family: monospace; }
+.api-status { font-size: 13px; margin-top: 6px; }
+.api-status.ok { color: var(--success); }
+.api-status.ng { color: var(--danger); }
+
+@media (max-width: 768px) {
+  .app-layout { flex-direction: column; }
+  nav { width: 100%; display: flex; padding: 0; border-right: none; border-bottom: 1px solid var(--border); }
+  nav button { flex: 1; padding: 10px 4px; white-space: nowrap; border-right: none !important; font-size: 12px; justify-content: center; }
+  nav button .icon { font-size: 16px; width: auto; }
+  nav button.active { border-bottom: 3px solid var(--primary); border-right: none; }
+  main { height: calc(100vh - 56px - 48px); }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:24px">&#128188;</span>
+  <h1>AI秘書</h1>
+</header>
+
+<div class="app-layout">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+
+<script>
+const App = {
+  currentView: 'dashboard',
+  scheduleDate: new Date(),
+  taskFilter: 'all',
+};
+
+const Store = {
+  _key(name) { return `secretary_${name}`; },
+  get(name) { return JSON.parse(localStorage.getItem(this._key(name)) || '[]'); },
+  set(name, data) { localStorage.setItem(this._key(name), JSON.stringify(data)); },
+  add(name, item) { const d = this.get(name); item.id = Date.now().toString(36) + Math.random().toString(36).slice(2,6); item.createdAt = new Date().toISOString(); d.push(item); this.set(name, d); return item; },
+  update(name, id, updates) { const d = this.get(name); const i = d.findIndex(x => x.id === id); if (i >= 0) { Object.assign(d[i], updates, { updatedAt: new Date().toISOString() }); this.set(name, d); } },
+  remove(name, id) { this.set(name, this.get(name).filter(x => x.id !== id)); },
+  find(name, id) { return this.get(name).find(x => x.id === id); },
+};
+
+const navItems = [
+  { id: 'dashboard', icon: '&#9679;', label: 'ダッシュボード' },
+  { id: 'schedule', icon: '&#128197;', label: 'スケジュール' },
+  { id: 'tasks', icon: '&#9745;', label: 'タスク' },
+  { id: 'memos', icon: '&#128221;', label: 'メモ' },
+  { id: 'settings', icon: '&#9881;', label: '設定' },
+];
+
+function renderNav() {
+  document.getElementById('nav').innerHTML = navItems.map(n =>
+    `<button class="${App.currentView === n.id ? 'active' : ''}" onclick="navigate('${n.id}')"><span class="icon">${n.icon}</span>${n.label}</button>`
+  ).join('');
+}
+
+function navigate(view) {
+  App.currentView = view;
+  renderNav();
+  renderMain();
+}
+
+function renderMain() {
+  const views = { dashboard: renderDashboard, schedule: renderSchedule, tasks: renderTasks, memos: renderMemos, settings: renderSettings };
+  (views[App.currentView] || views.dashboard)();
+}
+
+function formatDate(d) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}/${(dt.getMonth()+1).toString().padStart(2,'0')}/${dt.getDate().toString().padStart(2,'0')}`;
+}
+
+function formatDateJP(d) {
+  const dt = new Date(d);
+  const days = ['日','月','火','水','木','金','土'];
+  return `${dt.getFullYear()}年${dt.getMonth()+1}月${dt.getDate()}日(${days[dt.getDay()]})`;
+}
+
+function dateStr(d) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${(dt.getMonth()+1).toString().padStart(2,'0')}-${dt.getDate().toString().padStart(2,'0')}`;
+}
+
+// Dashboard
+function renderDashboard() {
+  const today = dateStr(new Date());
+  const schedules = Store.get('schedules').filter(s => s.date === today).sort((a,b) => a.startTime.localeCompare(b.startTime));
+  const tasks = Store.get('tasks');
+  const pendingTasks = tasks.filter(t => !t.done);
+  const memos = Store.get('memos');
+
+  document.getElementById('main').innerHTML = `
+    <div class="section-header"><h2>ダッシュボード</h2><span style="color:var(--text-muted);font-size:14px">${formatDateJP(new Date())}</span></div>
+    <div class="dashboard-grid">
+      <div class="card dashboard-card">
+        <h3>今日の予定</h3>
+        ${schedules.length ? schedules.slice(0,5).map(s => `
+          <div class="upcoming-item">
+            <span class="upcoming-time">${s.startTime}</span>
+            <span class="upcoming-title">${esc(s.title)}</span>
+          </div>
+        `).join('') : '<p style="color:var(--text-muted);font-size:14px">今日の予定はありません</p>'}
+      </div>
+      <div class="card dashboard-card">
+        <h3>タスク状況</h3>
+        <div class="stat">${pendingTasks.length}</div>
+        <div class="stat-label">未完了のタスク</div>
+        <div style="margin-top:12px">
+          ${pendingTasks.filter(t=>t.priority==='high').length ? `<span class="task-priority priority-high" style="margin-right:6px">高 ${pendingTasks.filter(t=>t.priority==='high').length}</span>` : ''}
+          ${pendingTasks.filter(t=>t.priority==='medium').length ? `<span class="task-priority priority-medium" style="margin-right:6px">中 ${pendingTasks.filter(t=>t.priority==='medium').length}</span>` : ''}
+          ${pendingTasks.filter(t=>t.priority==='low').length ? `<span class="task-priority priority-low">低 ${pendingTasks.filter(t=>t.priority==='low').length}</span>` : ''}
+        </div>
+      </div>
+      <div class="card dashboard-card">
+        <h3>メモ</h3>
+        <div class="stat">${memos.length}</div>
+        <div class="stat-label">保存済みメモ</div>
+      </div>
+    </div>
+  `;
+}
+
+// Schedule
+function renderSchedule() {
+  const d = App.scheduleDate;
+  const ds = dateStr(d);
+  const items = Store.get('schedules').filter(s => s.date === ds).sort((a,b) => a.startTime.localeCompare(b.startTime));
+
+  document.getElementById('main').innerHTML = `
+    <div class="section-header">
+      <h2>スケジュール</h2>
+      <button class="btn btn-primary" onclick="showScheduleModal()">+ 予定を追加</button>
+    </div>
+    <div class="schedule-date-nav">
+      <button onclick="changeDate(-1)">&larr;</button>
+      <span>${formatDateJP(d)}</span>
+      <button onclick="changeDate(1)">&rarr;</button>
+      <button class="btn" style="font-size:13px;margin-left:8px" onclick="App.scheduleDate=new Date();renderSchedule()">今日</button>
+    </div>
+    ${items.length ? items.map(s => `
+      <div class="card schedule-item">
+        <div class="time">${s.startTime}${s.endTime ? ' - '+s.endTime : ''}</div>
+        <div class="content">
+          <div class="title">${esc(s.title)}</div>
+          ${s.description ? `<div class="desc">${esc(s.description)}</div>` : ''}
+        </div>
+        <div class="actions">
+          <button class="btn-ghost" onclick="showScheduleModal('${s.id}')">&#9998;</button>
+          <button class="btn-ghost" onclick="deleteItem('schedules','${s.id}','renderSchedule')">&#10005;</button>
+        </div>
+      </div>
+    `).join('') : '<div class="empty-state"><div class="icon">&#128197;</div><p>この日の予定はありません</p></div>'}
+  `;
+}
+
+function changeDate(offset) {
+  App.scheduleDate.setDate(App.scheduleDate.getDate() + offset);
+  renderSchedule();
+}
+
+function showScheduleModal(editId) {
+  const item = editId ? Store.find('schedules', editId) : null;
+  const ds = dateStr(App.scheduleDate);
+  showModal(`
+    <h3>${item ? '予定を編集' : '予定を追加'}</h3>
+    <div class="form-group"><label>タイトル</label><input id="f-title" value="${item ? esc(item.title) : ''}"></div>
+    <div class="form-group"><label>日付</label><input id="f-date" type="date" value="${item ? item.date : ds}"></div>
+    <div style="display:flex;gap:12px">
+      <div class="form-group" style="flex:1"><label>開始時間</label><input id="f-start" type="time" value="${item ? item.startTime : ''}"></div>
+      <div class="form-group" style="flex:1"><label>終了時間</label><input id="f-end" type="time" value="${item ? item.endTime||'' : ''}"></div>
+    </div>
+    <div class="form-group"><label>メモ</label><textarea id="f-desc" rows="3">${item ? esc(item.description||'') : ''}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveSchedule('${editId||''}')">保存</button>
+    </div>
+  `);
+}
+
+function saveSchedule(editId) {
+  const data = {
+    title: document.getElementById('f-title').value.trim(),
+    date: document.getElementById('f-date').value,
+    startTime: document.getElementById('f-start').value,
+    endTime: document.getElementById('f-end').value,
+    description: document.getElementById('f-desc').value.trim(),
+  };
+  if (!data.title || !data.date) return alert('タイトルと日付は必須です');
+  if (editId) Store.update('schedules', editId, data);
+  else Store.add('schedules', data);
+  closeModal();
+  renderSchedule();
+}
+
+// Tasks
+function renderTasks() {
+  let items = Store.get('tasks');
+  if (App.taskFilter === 'pending') items = items.filter(t => !t.done);
+  else if (App.taskFilter === 'done') items = items.filter(t => t.done);
+  items.sort((a,b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    const p = {high:0,medium:1,low:2};
+    return (p[a.priority]||1) - (p[b.priority]||1);
+  });
+
+  document.getElementById('main').innerHTML = `
+    <div class="section-header">
+      <h2>タスク</h2>
+      <button class="btn btn-primary" onclick="showTaskModal()">+ タスクを追加</button>
+    </div>
+    <div class="filter-bar">
+      ${['all','pending','done'].map(f => `<button class="filter-btn ${App.taskFilter===f?'active':''}" onclick="App.taskFilter='${f}';renderTasks()">${{all:'すべて',pending:'未完了',done:'完了'}[f]}</button>`).join('')}
+    </div>
+    ${items.length ? items.map(t => `
+      <div class="card task-item ${t.done?'done':''}">
+        <input type="checkbox" ${t.done?'checked':''} onchange="toggleTask('${t.id}')">
+        <span class="task-text">${esc(t.title)}</span>
+        <span class="task-priority priority-${t.priority}">${{high:'高',medium:'中',low:'低'}[t.priority]||'中'}</span>
+        ${t.dueDate ? `<span class="task-due">${formatDate(t.dueDate)}</span>` : ''}
+        <button class="btn-ghost" onclick="showTaskModal('${t.id}')">&#9998;</button>
+        <button class="btn-ghost" onclick="deleteItem('tasks','${t.id}','renderTasks')">&#10005;</button>
+      </div>
+    `).join('') : '<div class="empty-state"><div class="icon">&#9745;</div><p>タスクはありません</p></div>'}
+  `;
+}
+
+function toggleTask(id) {
+  const t = Store.find('tasks', id);
+  if (t) Store.update('tasks', id, { done: !t.done });
+  renderTasks();
+}
+
+function showTaskModal(editId) {
+  const item = editId ? Store.find('tasks', editId) : null;
+  showModal(`
+    <h3>${item ? 'タスクを編集' : 'タスクを追加'}</h3>
+    <div class="form-group"><label>タイトル</label><input id="f-title" value="${item ? esc(item.title) : ''}"></div>
+    <div style="display:flex;gap:12px">
+      <div class="form-group" style="flex:1"><label>優先度</label>
+        <select id="f-priority">
+          <option value="low" ${item?.priority==='low'?'selected':''}>低</option>
+          <option value="medium" ${!item||item?.priority==='medium'?'selected':''}>中</option>
+          <option value="high" ${item?.priority==='high'?'selected':''}>高</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1"><label>期限</label><input id="f-due" type="date" value="${item?.dueDate||''}"></div>
+    </div>
+    <div class="form-group"><label>メモ</label><textarea id="f-desc" rows="3">${item ? esc(item.description||'') : ''}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveTask('${editId||''}')">保存</button>
+    </div>
+  `);
+}
+
+function saveTask(editId) {
+  const data = {
+    title: document.getElementById('f-title').value.trim(),
+    priority: document.getElementById('f-priority').value,
+    dueDate: document.getElementById('f-due').value,
+    description: document.getElementById('f-desc').value.trim(),
+  };
+  if (!data.title) return alert('タイトルは必須です');
+  if (editId) Store.update('tasks', editId, data);
+  else Store.add('tasks', { ...data, done: false });
+  closeModal();
+  renderTasks();
+}
+
+// Memos
+function renderMemos() {
+  const items = Store.get('memos').sort((a,b) => new Date(b.updatedAt||b.createdAt) - new Date(a.updatedAt||a.createdAt));
+
+  document.getElementById('main').innerHTML = `
+    <div class="section-header">
+      <h2>メモ</h2>
+      <button class="btn btn-primary" onclick="showMemoModal()">+ メモを追加</button>
+    </div>
+    ${items.length ? items.map(m => `
+      <div class="card memo-item" style="cursor:pointer" onclick="showMemoModal('${m.id}')">
+        <div class="memo-title">${esc(m.title)}</div>
+        <div class="memo-preview">${esc((m.content||'').slice(0,150))}${(m.content||'').length>150?'...':''}</div>
+        <div class="memo-date" style="display:flex;justify-content:space-between;align-items:center">
+          <span>${formatDate(m.updatedAt||m.createdAt)}</span>
+          <button class="btn-ghost" onclick="event.stopPropagation();deleteItem('memos','${m.id}','renderMemos')">&#10005;</button>
+        </div>
+      </div>
+    `).join('') : '<div class="empty-state"><div class="icon">&#128221;</div><p>メモはありません</p></div>'}
+  `;
+}
+
+function showMemoModal(editId) {
+  const item = editId ? Store.find('memos', editId) : null;
+  showModal(`
+    <h3>${item ? 'メモを編集' : 'メモを追加'}</h3>
+    ${item ? `<div class="ai-actions">
+      <button class="btn-ai" onclick="aiSummarize('${item.id}')">&#9733; AI要約</button>
+      <button class="btn-ai" onclick="aiToTasks('${item.id}')">&#9745; タスクに変換</button>
+    </div>
+    <div id="ai-result-area"></div>` : ''}
+    <div class="form-group"><label>タイトル</label><input id="f-title" value="${item ? esc(item.title) : ''}"></div>
+    <div class="form-group"><label>内容</label><textarea id="f-content" rows="8">${item ? esc(item.content||'') : ''}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveMemo('${editId||''}')">保存</button>
+    </div>
+  `);
+}
+
+function saveMemo(editId) {
+  const data = {
+    title: document.getElementById('f-title').value.trim(),
+    content: document.getElementById('f-content').value.trim(),
+  };
+  if (!data.title) return alert('タイトルは必須です');
+  if (editId) Store.update('memos', editId, data);
+  else Store.add('memos', data);
+  closeModal();
+  renderMemos();
+}
+
+// AI
+function getApiKey() {
+  return localStorage.getItem('secretary_apikey') || '';
+}
+
+async function callClaude(prompt) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    alert('APIキーが設定されていません。設定タブからClaude APIキーを入力してください。');
+    return null;
+  }
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API error: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.content[0].text;
+}
+
+async function aiSummarize(memoId) {
+  const memo = Store.find('memos', memoId);
+  if (!memo) return;
+  const area = document.getElementById('ai-result-area');
+  area.innerHTML = '<div class="ai-result"><div class="loading">要約を生成中...</div></div>';
+  try {
+    const result = await callClaude(
+      `以下のメモを簡潔に要約してください。要約のみを返してください。\n\nタイトル: ${memo.title}\n\n${memo.content}`
+    );
+    area.innerHTML = `<div class="ai-result"><h4>&#9733; AI要約</h4>${esc(result)}</div>`;
+  } catch (e) {
+    area.innerHTML = `<div class="ai-result" style="border-color:var(--danger)"><h4 style="color:var(--danger)">エラー</h4>${esc(e.message)}</div>`;
+  }
+}
+
+async function aiToTasks(memoId) {
+  const memo = Store.find('memos', memoId);
+  if (!memo) return;
+  const area = document.getElementById('ai-result-area');
+  area.innerHTML = '<div class="ai-result"><div class="loading">タスクを抽出中...</div></div>';
+  try {
+    const result = await callClaude(
+      `以下のメモからタスク（やるべきこと）を抽出してください。JSON配列で返してください。各要素は {"title": "タスク名", "priority": "high"|"medium"|"low"} の形式です。JSON配列のみを返し、他のテキストは含めないでください。\n\nタイトル: ${memo.title}\n\n${memo.content}`
+    );
+    let tasks;
+    try {
+      const jsonMatch = result.match(/\[[\s\S]*\]/);
+      tasks = JSON.parse(jsonMatch ? jsonMatch[0] : result);
+    } catch { tasks = []; }
+    if (!tasks.length) {
+      area.innerHTML = '<div class="ai-result"><h4>&#9745; タスク抽出</h4>タスクが見つかりませんでした。</div>';
+      return;
+    }
+    App._pendingTasks = tasks;
+    area.innerHTML = `<div class="ai-result">
+      <h4>&#9745; 抽出されたタスク（チェックして登録）</h4>
+      ${tasks.map((t, i) => `<div class="ai-task-item">
+        <input type="checkbox" id="ai-task-${i}" checked>
+        <span>${esc(t.title)}</span>
+        <span class="task-priority priority-${t.priority}">${{high:'高',medium:'中',low:'低'}[t.priority]||'中'}</span>
+      </div>`).join('')}
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn btn-primary" onclick="registerAiTasks()">選択したタスクを登録</button>
+      </div>
+    </div>`;
+  } catch (e) {
+    area.innerHTML = `<div class="ai-result" style="border-color:var(--danger)"><h4 style="color:var(--danger)">エラー</h4>${esc(e.message)}</div>`;
+  }
+}
+
+function registerAiTasks() {
+  const tasks = App._pendingTasks || [];
+  let count = 0;
+  tasks.forEach((t, i) => {
+    const cb = document.getElementById(`ai-task-${i}`);
+    if (cb && cb.checked) {
+      Store.add('tasks', { title: t.title, priority: t.priority || 'medium', dueDate: '', description: '', done: false });
+      count++;
+    }
+  });
+  delete App._pendingTasks;
+  const area = document.getElementById('ai-result-area');
+  area.innerHTML = `<div class="ai-result"><h4 style="color:var(--success)">&#10003; ${count}件のタスクを登録しました</h4></div>`;
+}
+
+// Settings
+function renderSettings() {
+  const apiKey = getApiKey();
+  document.getElementById('main').innerHTML = `
+    <div class="section-header"><h2>設定</h2></div>
+    <div class="settings-section">
+      <div class="card" style="padding:20px">
+        <h3 style="font-size:16px;margin-bottom:16px">Claude API設定</h3>
+        <div class="form-group">
+          <label>APIキー</label>
+          <input id="f-apikey" class="api-key-input" type="password" placeholder="sk-ant-..." value="${apiKey ? '••••••••' : ''}">
+          <div id="api-status" class="api-status">${apiKey ? '<span class="ok">&#10003; 設定済み</span>' : '<span class="ng">未設定</span>'}</div>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">メモのAI要約・タスク変換機能に使用します。APIキーはブラウザのローカルストレージに保存されます。</p>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="saveApiKey()">保存</button>
+          ${apiKey ? '<button class="btn btn-danger" onclick="clearApiKey()">削除</button>' : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function saveApiKey() {
+  const input = document.getElementById('f-apikey');
+  const val = input.value.trim();
+  if (!val || val === '••••••••') return alert('新しいAPIキーを入力してください');
+  localStorage.setItem('secretary_apikey', val);
+  renderSettings();
+}
+
+function clearApiKey() {
+  if (confirm('APIキーを削除しますか？')) {
+    localStorage.removeItem('secretary_apikey');
+    renderSettings();
+  }
+}
+
+// Shared
+function deleteItem(store, id, renderFn) {
+  if (confirm('削除しますか?')) {
+    Store.remove(store, id);
+    window[renderFn]();
+  }
+}
+
+function showModal(html) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.onclick = e => { if (e.target === overlay) closeModal(); };
+  overlay.innerHTML = `<div class="modal">${html}</div>`;
+  document.body.appendChild(overlay);
+}
+
+function closeModal() {
+  document.querySelector('.modal-overlay')?.remove();
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+renderNav();
+renderMain();
+</script>
+</body>
+</html>
