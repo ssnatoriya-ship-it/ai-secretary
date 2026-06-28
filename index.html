@@ -1074,7 +1074,26 @@ async function saveMemo(editId) {
 
 // AI
 function getApiKey() {
-  return localStorage.getItem('secretary_apikey') || '';
+  return App._cachedApiKey || localStorage.getItem('secretary_apikey') || '';
+}
+
+async function loadApiKeyFromDb() {
+  const { data } = await sb.from('user_settings').select('claude_api_key').single();
+  if (data && data.claude_api_key) {
+    App._cachedApiKey = data.claude_api_key;
+    localStorage.setItem('secretary_apikey', data.claude_api_key);
+  }
+}
+
+async function saveApiKeyToDb(key) {
+  const { data: existing } = await sb.from('user_settings').select('id').single();
+  if (existing) {
+    await sb.from('user_settings').update({ claude_api_key: key, updated_at: new Date().toISOString() }).eq('user_id', App.user.id);
+  } else {
+    await sb.from('user_settings').insert({ user_id: App.user.id, claude_api_key: key });
+  }
+  App._cachedApiKey = key;
+  localStorage.setItem('secretary_apikey', key);
 }
 
 async function callClaude(prompt) {
@@ -1193,16 +1212,18 @@ function renderSettings() {
   `;
 }
 
-function saveApiKey() {
+async function saveApiKey() {
   const input = document.getElementById('f-apikey');
   const val = input.value.trim();
   if (!val || val === '••••••••') return alert('新しいAPIキーを入力してください');
-  localStorage.setItem('secretary_apikey', val);
+  await saveApiKeyToDb(val);
   renderSettings();
 }
 
-function clearApiKey() {
+async function clearApiKey() {
   if (confirm('APIキーを削除しますか？')) {
+    await saveApiKeyToDb('');
+    App._cachedApiKey = '';
     localStorage.removeItem('secretary_apikey');
     renderSettings();
   }
@@ -1238,6 +1259,7 @@ async function initApp() {
   showAppLayout();
   renderNav();
   renderMain();
+  loadApiKeyFromDb();
 }
 
 (async () => {
