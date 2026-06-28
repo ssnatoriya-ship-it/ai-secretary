@@ -321,6 +321,65 @@ main {
 .api-status.ok { color: var(--success); }
 .api-status.ng { color: var(--danger); }
 
+.voice-area {
+  margin-top: 20px;
+}
+
+.mic-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: none;
+  background: var(--primary);
+  color: white;
+  font-size: 28px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  box-shadow: 0 4px 12px rgba(79,70,229,0.3);
+}
+
+.mic-btn:hover { transform: scale(1.05); }
+.mic-btn.recording {
+  background: var(--danger);
+  animation: pulse 1.5s infinite;
+  box-shadow: 0 4px 12px rgba(239,68,68,0.4);
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.voice-status {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.voice-transcript {
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 14px;
+  margin-bottom: 12px;
+  min-height: 40px;
+}
+
+.voice-response {
+  background: #eef2ff;
+  border: 1px solid var(--primary-light);
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 768px) {
   .app-layout { flex-direction: column; }
   nav { width: 100%; display: flex; padding: 0; border-right: none; border-bottom: 1px solid var(--border); }
@@ -446,6 +505,13 @@ function renderDashboard() {
         <p style="color:var(--text-muted);font-size:14px">ボタンを押すと、予定・タスク・メモをもとにAIがアドバイスします。</p>
       </div>
     </div>
+    <div class="card voice-area" style="margin-top:20px">
+      <h3 style="font-size:16px;font-weight:600;margin-bottom:16px;text-align:center">&#127908; 音声アシスタント</h3>
+      <button class="mic-btn" id="mic-btn" onclick="toggleVoice()">&#127908;</button>
+      <div class="voice-status" id="voice-status">マイクボタンを押して話しかけてください</div>
+      <div id="voice-transcript-area"></div>
+      <div id="voice-response-area"></div>
+    </div>
   `;
 }
 
@@ -489,6 +555,133 @@ ${context}`
     area.innerHTML = `<div class="ai-result"><div style="white-space:pre-wrap;line-height:1.8">${esc(result)}</div></div>`;
   } catch (e) {
     area.innerHTML = `<div class="ai-result" style="border-color:var(--danger)"><h4 style="color:var(--danger)">エラー</h4>${esc(e.message)}</div>`;
+  }
+}
+
+// Voice
+let voiceRecognition = null;
+let isRecording = false;
+
+function toggleVoice() {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    document.getElementById('voice-status').textContent = 'お使いのブラウザは音声認識に対応していません';
+    return;
+  }
+  if (isRecording) {
+    voiceRecognition.stop();
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  voiceRecognition = new SR();
+  voiceRecognition.lang = 'ja-JP';
+  voiceRecognition.continuous = false;
+  voiceRecognition.interimResults = true;
+
+  voiceRecognition.onstart = () => {
+    isRecording = true;
+    document.getElementById('mic-btn').classList.add('recording');
+    document.getElementById('voice-status').textContent = '聞いています...';
+    document.getElementById('voice-response-area').innerHTML = '';
+  };
+
+  voiceRecognition.onresult = (e) => {
+    let transcript = '';
+    for (let i = 0; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+    }
+    document.getElementById('voice-transcript-area').innerHTML =
+      `<div class="voice-transcript">${esc(transcript)}</div>`;
+    if (e.results[0].isFinal) {
+      processVoiceCommand(transcript);
+    }
+  };
+
+  voiceRecognition.onerror = (e) => {
+    isRecording = false;
+    document.getElementById('mic-btn').classList.remove('recording');
+    document.getElementById('voice-status').textContent =
+      e.error === 'not-allowed' ? 'マイクの使用が許可されていません。ブラウザの設定を確認してください。' : 'エラーが発生しました。もう一度お試しください。';
+  };
+
+  voiceRecognition.onend = () => {
+    isRecording = false;
+    document.getElementById('mic-btn').classList.remove('recording');
+    if (document.getElementById('voice-status').textContent === '聞いています...') {
+      document.getElementById('voice-status').textContent = 'マイクボタンを押して話しかけてください';
+    }
+  };
+
+  voiceRecognition.start();
+}
+
+async function processVoiceCommand(text) {
+  document.getElementById('voice-status').textContent = 'AIが処理中...';
+  const responseArea = document.getElementById('voice-response-area');
+  responseArea.innerHTML = '<div class="voice-response"><div class="loading">考え中...</div></div>';
+
+  const today = dateStr(new Date());
+  const schedules = Store.get('schedules');
+  const tasks = Store.get('tasks').filter(t => !t.done);
+
+  const prompt = `あなたはAI秘書です。ユーザーの音声指示に対応してください。
+今日は${formatDateJP(new Date())}です。
+
+【現在の予定】
+${schedules.filter(s => s.date >= today).sort((a,b) => a.date.localeCompare(b.date)).slice(0,10).map(s => `・${s.date} ${s.startTime} ${s.title}`).join('\n') || 'なし'}
+
+【未完了タスク】
+${tasks.map(t => `・[${({high:'高',medium:'中',low:'低'})[t.priority]||'中'}] ${t.title}${t.dueDate ? '（期限:'+t.dueDate+'）' : ''}`).join('\n') || 'なし'}
+
+ユーザーの指示: 「${text}」
+
+以下のルールに従って回答してください：
+1. 予定の追加が求められた場合、JSON形式で返してください：
+   {"action":"add_schedule","date":"YYYY-MM-DD","startTime":"HH:MM","endTime":"HH:MM","title":"タイトル","description":""}
+2. タスクの追加が求められた場合：
+   {"action":"add_task","title":"タスク名","priority":"high|medium|low","dueDate":"YYYY-MM-DD"}
+3. メモの追加が求められた場合：
+   {"action":"add_memo","title":"タイトル","content":"内容"}
+4. 複数の操作がある場合は配列で返してください：[{...},{...}]
+5. 情報の質問や確認の場合は、普通のテキストで回答してください（JSONなし）。
+6. 回答は簡潔に、親しみやすい丁寧語で。`;
+
+  try {
+    const result = await callClaude(prompt);
+    let actions = [];
+    try {
+      const jsonMatch = result.match(/\[[\s\S]*\]/) || result.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        actions = Array.isArray(parsed) ? parsed : [parsed];
+      }
+    } catch {}
+
+    let messages = [];
+    for (const a of actions) {
+      if (a.action === 'add_schedule') {
+        Store.add('schedules', { title: a.title, date: a.date, startTime: a.startTime || '', endTime: a.endTime || '', description: a.description || '' });
+        messages.push(`予定「${a.title}」を${a.date}に追加しました。`);
+      } else if (a.action === 'add_task') {
+        Store.add('tasks', { title: a.title, priority: a.priority || 'medium', dueDate: a.dueDate || '', description: '', done: false });
+        messages.push(`タスク「${a.title}」を追加しました。`);
+      } else if (a.action === 'add_memo') {
+        Store.add('memos', { title: a.title, content: a.content || '' });
+        messages.push(`メモ「${a.title}」を保存しました。`);
+      }
+    }
+
+    if (messages.length > 0) {
+      responseArea.innerHTML = `<div class="voice-response">${messages.map(m => '&#10003; ' + esc(m)).join('<br>')}</div>`;
+      renderDashboard();
+    } else {
+      const cleanResult = result.replace(/```json[\s\S]*?```/g, '').replace(/\{[\s\S]*?\}/g, '').trim() || result;
+      responseArea.innerHTML = `<div class="voice-response">${esc(actions.length ? result : cleanResult)}</div>`;
+    }
+
+    document.getElementById('voice-status').textContent = 'マイクボタンを押して話しかけてください';
+  } catch (e) {
+    responseArea.innerHTML = `<div class="voice-response" style="border-color:var(--danger)">${esc(e.message)}</div>`;
+    document.getElementById('voice-status').textContent = 'エラーが発生しました';
   }
 }
 
