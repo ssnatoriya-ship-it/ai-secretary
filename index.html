@@ -655,7 +655,7 @@ async function renderDashboard() {
   document.getElementById('main').innerHTML = `
     <div class="section-header"><h2>ダッシュボード</h2><span style="color:var(--text-muted);font-size:14px">${formatDateJP(new Date())}</span></div>
     <div class="dashboard-grid">
-      <div class="card dashboard-card">
+      <div class="card dashboard-card" style="cursor:pointer" onclick="navigate('schedule')">
         <h3>今日の予定</h3>
         ${schedules.length ? schedules.slice(0,5).map(s => `
           <div class="upcoming-item">
@@ -664,7 +664,7 @@ async function renderDashboard() {
           </div>
         `).join('') : '<p style="color:var(--text-muted);font-size:14px">今日の予定はありません</p>'}
       </div>
-      <div class="card dashboard-card">
+      <div class="card dashboard-card" style="cursor:pointer" onclick="navigate('tasks')">
         <h3>タスク状況</h3>
         <div class="stat">${pendingTasks.length}</div>
         <div class="stat-label">未完了のタスク</div>
@@ -674,7 +674,7 @@ async function renderDashboard() {
           ${pendingTasks.filter(t=>t.priority==='low').length ? `<span class="task-priority priority-low">低 ${pendingTasks.filter(t=>t.priority==='low').length}</span>` : ''}
         </div>
       </div>
-      <div class="card dashboard-card">
+      <div class="card dashboard-card" style="cursor:pointer" onclick="navigate('memos')">
         <h3>メモ</h3>
         <div class="stat">${memos.length}</div>
         <div class="stat-label">保存済みメモ</div>
