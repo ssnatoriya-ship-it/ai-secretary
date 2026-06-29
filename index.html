@@ -776,6 +776,7 @@ function toggleVoice() {
     document.getElementById('voice-transcript-area').innerHTML =
       `<div class="voice-transcript">${esc(transcript)}</div>`;
     if (e.results[0].isFinal) {
+      voiceRecognition.stop();
       processVoiceCommand(transcript);
     }
   };
