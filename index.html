@@ -812,10 +812,13 @@ async function processVoiceCommand(text) {
 今日は${formatDateJP(new Date())}です。
 
 【現在の予定】
-${schedules.filter(s => s.date >= today).sort((a,b) => a.date.localeCompare(b.date)).slice(0,10).map(s => `・${s.date} ${s.startTime} ${s.title}`).join('\n') || 'なし'}
+${schedules.filter(s => s.date >= today).sort((a,b) => a.date.localeCompare(b.date)).slice(0,10).map(s => `・[ID:${s.id}] ${s.date} ${s.startTime} ${s.title}`).join('\n') || 'なし'}
 
 【未完了タスク】
-${tasks.map(t => `・[${({high:'高',medium:'中',low:'低'})[t.priority]||'中'}] ${t.title}${t.dueDate ? '（期限:'+t.dueDate+'）' : ''}`).join('\n') || 'なし'}
+${tasks.map(t => `・[ID:${t.id}] [${({high:'高',medium:'中',low:'低'})[t.priority]||'中'}] ${t.title}${t.dueDate ? '（期限:'+t.dueDate+'）' : ''}`).join('\n') || 'なし'}
+
+【メモ】
+${(await Store.get('memos')).map(m => `・[ID:${m.id}] ${m.title}`).join('\n') || 'なし'}
 
 ユーザーの指示: 「${text}」
 
@@ -826,9 +829,16 @@ ${tasks.map(t => `・[${({high:'高',medium:'中',low:'低'})[t.priority]||'中'
    {"action":"add_task","title":"タスク名","priority":"high|medium|low","dueDate":"YYYY-MM-DD"}
 3. メモの追加が求められた場合：
    {"action":"add_memo","title":"タイトル","content":"内容"}
-4. 複数の操作がある場合は配列で返してください：[{...},{...}]
-5. 情報の質問や確認の場合は、普通のテキストで回答してください（JSONなし）。
-6. 回答は簡潔に、親しみやすい丁寧語で。`;
+4. 予定の削除が求められた場合（タイトルや日付で特定してIDを指定）：
+   {"action":"delete_schedule","id":"該当のID","title":"削除する予定のタイトル"}
+5. タスクの削除が求められた場合：
+   {"action":"delete_task","id":"該当のID","title":"削除するタスクのタイトル"}
+6. メモの削除が求められた場合：
+   {"action":"delete_memo","id":"該当のID","title":"削除するメモのタイトル"}
+7. 「今日の予定を全部削除」のように複数削除の場合は、該当するものすべてを配列で返してください。
+8. 複数の操作がある場合は配列で返してください：[{...},{...}]
+9. 情報の質問や確認の場合は、普通のテキストで回答してください（JSONなし）。
+10. 回答は簡潔に、親しみやすい丁寧語で。`;
 
   try {
     const result = await callClaude(prompt);
@@ -852,6 +862,15 @@ ${tasks.map(t => `・[${({high:'高',medium:'中',low:'低'})[t.priority]||'中'
       } else if (a.action === 'add_memo') {
         await Store.add('memos', { title: a.title, content: a.content || '' });
         messages.push(`メモ「${a.title}」を保存しました。`);
+      } else if (a.action === 'delete_schedule' && a.id) {
+        await Store.remove('schedules', a.id);
+        messages.push(`予定「${a.title || ''}」を削除しました。`);
+      } else if (a.action === 'delete_task' && a.id) {
+        await Store.remove('tasks', a.id);
+        messages.push(`タスク「${a.title || ''}」を削除しました。`);
+      } else if (a.action === 'delete_memo' && a.id) {
+        await Store.remove('memos', a.id);
+        messages.push(`メモ「${a.title || ''}」を削除しました。`);
       }
     }
 
