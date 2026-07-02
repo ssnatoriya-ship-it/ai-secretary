@@ -1,0 +1,5 @@
+.DS_Store
+.claude/
+index-backup-*.html
+local_server-backup-*.py
+report*.md
