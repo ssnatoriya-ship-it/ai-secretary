@@ -10612,6 +10612,123 @@ function isColormeColorExemptProduct(productName, majorCategory, minorCategory) 
   const text = `${productName || ''} ${majorCategory || ''} ${minorCategory || ''}`;
   return COLORME_COLOR_EXEMPT_KEYWORDS.some(k => text.includes(k));
 }
+
+// google_product_category：カラーミー独自の「広告用カテゴリーID」はGoogle公式Product Taxonomyの
+// IDではないため一切使用しない（2026-07-25調査：実データ75種のうち73種が公式Taxonomyに存在せず、
+// 偶然一致した2件も意味が異なることを確認済み）。ここでは商品CSVの「大カテゴリー」「小カテゴリー」
+// から、Google公式Product Taxonomy（taxonomy-with-ids.en-US.txt、2021-09-21版）と個別に照合し、
+// 存在と意味を確認できたIDのみを登録する。推測でのID割り当ては行わない。
+// キー: `${大カテゴリー}|${小カテゴリー}`（小カテゴリーが空欄の場合は末尾を空文字のままにする）。
+const COLORME_GOOGLE_CATEGORY_MAP = {
+  'メンズ靴|シューズ': '187', 'メンズ靴|ブーツ': '187', 'メンズ靴|サンダル': '187',
+  'レディース靴|シューズ': '187', 'レディース靴|ブーツ': '187', 'レディース靴|サンダル': '187',
+  'スニーカー|': '187',
+  'バッグ|': '3032',
+  'ファッション小物・雑貨|財布': '2668',
+  'ファッション小物・雑貨|メンズ靴下': '209',
+  'ファッション小物・雑貨|レディース靴下': '209',
+  'グローブ|メンズ': '170',
+  'グローブ|レディース': '170',
+  'ファッション小物・雑貨|ベルト': '169',
+  'ファッション小物・雑貨|帽子': '173',
+  'ファッション小物・雑貨|アイウェア・サングラス': '178',
+  'ファッション小物・雑貨|腕時計': '201',
+  'ファッション小物・雑貨|キーホルダー': '175',
+  'ファッション小物・雑貨|サスペンダー': '179',
+  'ファッション小物・雑貨|マフラー・ストール・スカーフ': '177',
+  'ファッション小物・雑貨|傘': '4358',
+  'ファッション小物・雑貨|カードホルダー': '6169',
+  'ファッション小物・雑貨|IDケース': '6170',
+  'ファッション小物・雑貨|ボトル／ドリンクウェア': '674',
+  'ファッション小物・雑貨|ブックカバー': '6176',
+  'アクセサリー|': '188',
+  'アパレル (Mens)|Tシャツ': '212',
+  'アパレル (Mens)|シャツ': '212',
+  'アパレル (Mens)|カットソー': '212',
+  'アパレル (Mens)|パンツ': '204',
+  'アパレル (Mens)|ジーンズ': '204',
+  'アパレル (Mens)|ジャケット': '5598',
+  'アパレル (Mens)|コート': '5598',
+  'アパレル (Mens)|アウター': '5598',
+  'アパレル (Ladies)|ベスト': '1831',
+  '靴ベラ|': '5601',
+  'ケア用品・消耗品|靴ひも': '1856',
+  'ケア用品・消耗品|靴ひもオーダー': '1856',
+  'ケア用品・消耗品|保革クリーム・保革スプレー': '5604',
+  'ケア用品・消耗品|ワックス': '1659',
+  'ケア用品・消耗品|ブラシ': '1874',
+  'ケア用品・消耗品|中敷': '2801',
+  'ケア用品・消耗品|シューツリー': '2431',
+  'ケア用品・消耗品|防水': '5604',
+  'ケア用品・消耗品|セット品': '8033',
+  'ケア用品・消耗品|汚れ落とし': '5604',
+  'ケア用品・消耗品|ソール': '5604',
+  'ケア用品・消耗品|レザースティック': '1659',
+  'ケア用品・消耗品|布': '628',
+  'ケア用品・消耗品|グローブ': '628',
+  'ケア用品・消耗品|ラバーブーツ用': '5604',
+  'ケア用品・消耗品|ローション': '5604',
+  'ケア用品・消耗品|冷感・消臭': '628',
+  'ケア用品・消耗品|起毛素材': '5604',
+  'ケア用品・消耗品|爬虫類': '628',
+  'ケア用品・消耗品|ブーツジャック': '5600',
+  'ケア用品・消耗品|エナメル': '628',
+  'ケア用品・消耗品|カビ防止': '628',
+  'ケア用品・消耗品|革伸ばし': '628',
+};
+
+// 小カテゴリー単独でも安全にGoogleカテゴリを確定できるもの（大カテゴリーが何であっても、
+// この小カテゴリーである限り実データ上は必ず同じGoogleカテゴリになると確認できたもののみ登録。
+// 大カテゴリー単独でのフォールバックは、複数カテゴリへ分岐する可能性があり誤分類のリスクが
+// あるため2026-07-25に廃止した）。「シューズ／ブーツ／サンダル」はメンズ靴・レディース靴の
+// いずれの大カテゴリーでも実データ上必ず187（Shoes）になるため、小カテゴリー単独で確定してよい。
+const COLORME_GOOGLE_CATEGORY_MINOR_ONLY_MAP = {
+  'シューズ': '187',
+  'ブーツ': '187',
+  'サンダル': '187',
+};
+
+// 商品名による限定的な補助判定（大カテゴリー＋小カテゴリー・小カテゴリー単独のいずれでも
+// 判定できない場合のみ使用）。曖昧な部分一致による誤分類を避けるため、商品種別を一意に
+// 示す語のみに限定して登録する。実データの未解決16商品を確認した結果、いずれも修理・送料・
+// イベント予約等の非商品行、またはGoogle公式Taxonomy上に対応する適切なカテゴリが見当たらない
+// 商品群（マルチケース・トレー・ニット/セーター・ハンガー等）であり、商品名からの安全な補助
+// 判定は該当なしと判断した（無理に割り当てず空欄のままとする）。
+const COLORME_GOOGLE_CATEGORY_NAME_HINT_RULES = [];
+
+// 判定優先順位：①大カテゴリー＋小カテゴリーの完全一致 → ②小カテゴリー単独で明確に判定できる場合
+// → ③商品名による限定的な補助判定 → ④判定不能なら空欄。
+function resolveColormeGoogleProductCategory(majorCategory, minorCategory, productName) {
+  const major = (majorCategory || '').trim();
+  const minor = (minorCategory || '').trim();
+  const comboKey = `${major}|${minor}`;
+  if (COLORME_GOOGLE_CATEGORY_MAP[comboKey]) {
+    return { id: COLORME_GOOGLE_CATEGORY_MAP[comboKey], matchType: 'exact_combo' };
+  }
+  if (minor && COLORME_GOOGLE_CATEGORY_MINOR_ONLY_MAP[minor]) {
+    return { id: COLORME_GOOGLE_CATEGORY_MINOR_ONLY_MAP[minor], matchType: 'minor_only' };
+  }
+  const name = productName || '';
+  for (const rule of COLORME_GOOGLE_CATEGORY_NAME_HINT_RULES) {
+    if (name.includes(rule.keyword)) {
+      return { id: rule.id, matchType: 'product_name_hint' };
+    }
+  }
+  return { id: '', matchType: 'unresolved' };
+}
+
+// price：カラーミーの「販売価格」列は税別価格であることを実データ・実店舗ページで確認済み
+// （2026-07-25調査：ALDEN 53713ほか複数商品で 販売価格×1.10＝実店舗の税込表示価格 と一致）。
+// 商品CSV・オプションCSVのいずれにも税込価格の列は存在しないため、税別価格から税込価格を
+// 都度算出する。軽減税率設定は実データ全件が「軽減税率設定しない」であることを確認済みのため
+// 標準税率10%のみを扱う（軽減税率が設定された行は税率を推測せず判定不能として扱う）。
+const COLORME_STANDARD_TAX_RATE = 1.10;
+const COLORME_ABNORMAL_PRICE_THRESHOLD_JPY = 10000000; // 実データ最高額(180万円)の5倍超を異常値の目安とする監査専用しきい値（掲載可否には影響しない）
+
+function resolveColormeTaxInclusivePrice(taxExclusiveNum) {
+  const taxIncl = Math.round(taxExclusiveNum * COLORME_STANDARD_TAX_RATE);
+  return { amount: taxIncl, roundingMethod: 'round' };
+}
 // size/colorに割り当てない既知の見出し（要確認警告も出さない）。
 const COLORME_NON_VARIANT_OPTION_LABELS = ['先端金具', '運送会社', '地域', '修理', 'タイプ', 'オプション', '金具色'];
 
@@ -10663,6 +10780,10 @@ const COLORME_AUDIT_CSV_HEADERS = [
   '商品ID', 'オプションID', 'Merchant ID', '商品名', '判定', '理由', '元の掲載設定',
   'brand_source', 'brand_matched_term', 'brand_normalized_from', 'brand_resolution_status',
   'color_raw', 'color_normalized', 'color_source', 'color_confidence', 'color_unresolved_reason',
+  'category_raw', 'category_major', 'category_middle', 'category_minor', 'category_normalized',
+  'category_source', 'category_match_type', 'category_unresolved_reason',
+  'price_raw', 'price_source', 'price_tax_status', 'price_tax_rate', 'price_normalized',
+  'price_rounding_method', 'price_unresolved_reason',
 ];
 
 // 除外理由・注意理由の固定文言（理由別件数の集計キー、および「必須項目不足件数」の判定に使用）。
@@ -11115,20 +11236,51 @@ function buildColormeMerchantRow(product, optionItem, headings, nonProductOption
     rejectReasons.push(COLORME_REJECT_REASON.STOCK_MANAGEMENT_UNKNOWN);
   }
 
-  // price（オプションあり：オプション販売価格→親価格の順。会員価格は使用しない）
+  // price（オプションあり：オプション販売価格→親価格の順。会員価格は使用しない。
+  // オプション販売価格はそのバリエーションの完成価格であり、親価格への加算ではないため置換のみ行う）
   let priceRaw = '';
+  let priceSource = 'none';
   if (hasOption) {
     const optionPrice = (optionItem['販売価格'] || '').trim();
-    priceRaw = optionPrice || (product['販売価格'] || '').trim();
+    if (optionPrice) {
+      priceRaw = optionPrice;
+      priceSource = 'option';
+    } else {
+      priceRaw = (product['販売価格'] || '').trim();
+      priceSource = 'product';
+    }
   } else {
     priceRaw = (product['販売価格'] || '').trim();
+    priceSource = 'product';
   }
   const priceNum = Number(priceRaw);
   let price = '';
+  let priceTaxStatus = 'none';
+  let priceTaxRate = '';
+  let priceNormalized = '';
+  let priceRoundingMethod = '';
+  let priceUnresolvedReason = '';
+  const reducedTaxSetting = (product['軽減税率設定'] || '').trim();
   if (!priceRaw || !Number.isFinite(priceNum) || priceNum <= 0) {
     rejectReasons.push(COLORME_REJECT_REASON.PRICE_INVALID);
+    priceUnresolvedReason = !priceRaw ? 'price_blank' : (priceNum < 0 ? 'price_negative' : 'price_zero_or_invalid');
+  } else if (reducedTaxSetting && reducedTaxSetting !== '軽減税率設定しない') {
+    // 軽減税率（8%）が設定された行は実データで一件も確認できておらず、税率を推測しない
+    // （推測による価格補完の禁止）。price自体は空欄にせず監査対象として記録する。
+    priceUnresolvedReason = 'reduced_tax_rate_unconfirmed';
+    noteReasons.push('軽減税率設定のため税込価格を自動算出していません（要確認）');
   } else {
-    price = `${Math.round(priceNum)} JPY`;
+    // 商品CSV・オプションCSVのいずれにも税込価格列が存在しないため、税別価格（販売価格）から
+    // 標準税率10%で税込価格を算出する（実データ・実店舗ページで販売価格×1.10＝税込表示価格を確認済み）。
+    const taxResult = resolveColormeTaxInclusivePrice(priceNum);
+    price = `${taxResult.amount} JPY`;
+    priceTaxStatus = 'tax_exclusive_converted';
+    priceTaxRate = String(COLORME_STANDARD_TAX_RATE);
+    priceNormalized = String(taxResult.amount);
+    priceRoundingMethod = taxResult.roundingMethod;
+    if (taxResult.amount > COLORME_ABNORMAL_PRICE_THRESHOLD_JPY) {
+      priceUnresolvedReason = 'abnormally_large_price';
+    }
   }
 
   // condition（新品/中古/再生品等の完全一致変換のみ。推測変換はしない）
@@ -11190,9 +11342,21 @@ function buildColormeMerchantRow(product, optionItem, headings, nonProductOption
     identifierExists = 'no';
   }
 
-  // google_product_category（推測補完はしない。既定値の一律設定もしない。空欄は注意のみ）
-  const googleProductCategory = (product['広告用カテゴリーID'] || '').trim();
-  if (!googleProductCategory) noteReasons.push('Google商品カテゴリが空欄です');
+  // google_product_category（カラーミー「広告用カテゴリーID」は使用しない。商品CSVの
+  // 大カテゴリー・小カテゴリーからGoogle公式Product Taxonomy IDへ変換する。推測補完はしない。
+  // 判定不能な場合は空欄のままとし、空欄であることを理由にTSVから除外しない）
+  const categoryRaw = product['広告用カテゴリーID'] || '';
+  const categoryMajor = (product['大カテゴリー'] || '').trim();
+  const categoryMinor = (product['小カテゴリー'] || '').trim();
+  const categoryResolution = resolveColormeGoogleProductCategory(categoryMajor, categoryMinor, productName);
+  const googleProductCategory = categoryResolution.id;
+  const categorySource = googleProductCategory ? 'major_minor_category' : 'none';
+  const categoryMatchType = categoryResolution.matchType;
+  let categoryUnresolvedReason = '';
+  if (!googleProductCategory) {
+    categoryUnresolvedReason = 'category_combination_not_mapped';
+    noteReasons.push('Google商品カテゴリが判定できず空欄です（大カテゴリー・小カテゴリーの組み合わせが未登録）');
+  }
 
   // size / color（オプション見出しラベルの完全一致でのみ判定。部分一致・文章推測は禁止）
   // color優先順位1：オプションの色系見出し
@@ -11285,6 +11449,9 @@ function buildColormeMerchantRow(product, optionItem, headings, nonProductOption
     brandSource: brandResolution.source, brandMatchedTerm: brandResolution.matchedTerm,
     brandNormalizedFrom: brandResolution.normalizedFrom, brandResolutionStatus: brandResolution.resolutionStatus,
     colorRaw, colorNormalized: color, colorSource, colorConfidence, colorUnresolvedReason,
+    categoryRaw, categoryMajor, categoryMiddle: '', categoryMinor,
+    categoryNormalized: googleProductCategory, categorySource, categoryMatchType, categoryUnresolvedReason,
+    priceRaw, priceSource, priceTaxStatus, priceTaxRate, priceNormalized, priceRoundingMethod, priceUnresolvedReason,
   };
 }
 
@@ -11372,7 +11539,7 @@ async function runColormeMerchantConversion() {
           brand: row.fields.brand,
           link: row.fields.link,
           googleProductCategory: row.fields.google_product_category,
-          reason: 'Google商品カテゴリ（広告用カテゴリーID）が空欄です',
+          reason: '大カテゴリー・小カテゴリーからGoogle公式カテゴリIDを判定できませんでした',
         });
       }
     }
@@ -11550,14 +11717,14 @@ function colormeSetMerchantPreviewPage(page) {
 
 // ── TSV生成（Google Merchant Center正式アップロード形式：タブ区切り・UTF-8 BOM・CRLF）──
 // soldOutExcludedProductIds／includeSoldOutProductsは「全サイズ完売商品の除外」機能用の引数。
-// Google商品カテゴリ（google_product_category）が空欄の行はTSVへ出力しない（判定ロジック＝
-// row.tierは変更しない。カテゴリ未設定一覧・監査CSVはこの除外の影響を受けず、引き続き全件記録する）。
+// Google商品カテゴリ（google_product_category）が空欄であることを理由にTSVから除外する処理は
+// 2026-07-25に廃止した（カテゴリが判定できないことと、他の掲載条件を満たすことは別問題であるため。
+// 判定ロジック＝row.tierは変更しない）。
 function buildColormeMerchantTsv(rows, soldOutExcludedProductIds, includeSoldOutProducts) {
   const excludedIds = soldOutExcludedProductIds || new Set();
   const outputRows = rows.filter(row => {
     if (row.tier === '掲載不可') return false;
     if (!includeSoldOutProducts && excludedIds.has(row.productId)) return false;
-    if (!row.fields.google_product_category) return false;
     return true;
   });
   const header = COLORME_MERCHANT_FIELD_ORDER.join('\t');
@@ -11567,8 +11734,9 @@ function buildColormeMerchantTsv(rows, soldOutExcludedProductIds, includeSoldOut
   return '﻿' + [header, ...lines].join('\r\n') + '\r\n';
 }
 
-// 現在の商品行・全サイズ完売除外設定・チェックボックス状態から、Google商品カテゴリ未設定の
-// 除外を適用する「前」の行集合を求める（カテゴリ未設定による除外件数を算出するための基準値）。
+// 現在の商品行・全サイズ完売除外設定・チェックボックス状態から、実際にTSVへ出力される
+// 行・商品の集合を求める共通ヘルパー（集計表示とダウンロードの両方から参照し、値のずれを防ぐ）。
+// Google商品カテゴリが空欄でもTSV対象から除外しない（2026-07-25廃止。判定ロジック＝row.tierは変更しない）。
 function colormeGetTsvEligibleRowsBeforeCategoryFilter() {
   const rows = ColormeCsvConverter.merchantRows || [];
   const soldOutExcludedProductIds = (ColormeCsvConverter.merchantResult && ColormeCsvConverter.merchantResult.soldOutExcludedProductIds) || new Set();
@@ -11580,14 +11748,11 @@ function colormeGetTsvEligibleRowsBeforeCategoryFilter() {
   });
 }
 
-// 現在の商品行・全サイズ完売除外設定・チェックボックス状態から、実際にTSVへ出力される
-// 行・商品の集合を求める共通ヘルパー（集計表示とダウンロードの両方から参照し、値のずれを防ぐ）。
-// Google商品カテゴリが空欄の行はTSV対象外（判定ロジック＝row.tierは変更しない）。
 function colormeGetTsvOutputRows() {
-  return colormeGetTsvEligibleRowsBeforeCategoryFilter().filter(row => !!row.fields.google_product_category);
+  return colormeGetTsvEligibleRowsBeforeCategoryFilter();
 }
 
-// Google商品カテゴリ未設定によりTSVから除外された行（集計表示用）。
+// Google商品カテゴリが空欄の行（TSVには引き続き含まれる。監視・確認用の一覧表示にのみ使用）。
 function colormeGetCategoryMissingExcludedRows() {
   return colormeGetTsvEligibleRowsBeforeCategoryFilter().filter(row => !row.fields.google_product_category);
 }
@@ -11639,6 +11804,10 @@ function buildColormeAuditCsv(rows) {
       row.productId, row.optionId || '', row.fields.id, row.productName, row.tier, reasonText, row.publishSetting,
       row.brandSource || '', row.brandMatchedTerm || '', row.brandNormalizedFrom || '', row.brandResolutionStatus || '',
       row.colorRaw || '', row.colorNormalized || '', row.colorSource || '', row.colorConfidence || '', row.colorUnresolvedReason || '',
+      row.categoryRaw || '', row.categoryMajor || '', row.categoryMiddle || '', row.categoryMinor || '',
+      row.categoryNormalized || '', row.categorySource || '', row.categoryMatchType || '', row.categoryUnresolvedReason || '',
+      row.priceRaw || '', row.priceSource || '', row.priceTaxStatus || '', row.priceTaxRate || '',
+      row.priceNormalized || '', row.priceRoundingMethod || '', row.priceUnresolvedReason || '',
     ].map(colormeEscapeCsvValue).join(',');
   });
   const header = COLORME_AUDIT_CSV_HEADERS.map(colormeEscapeCsvValue).join(',');
@@ -11764,7 +11933,6 @@ function renderColormeMerchantSummary(mr) {
   const canDownloadTsv = tsvRowCount >= 1;
   const categoryMissingExcludedRows = colormeGetCategoryMissingExcludedRows();
   const categoryMissingExcludedRowCount = categoryMissingExcludedRows.length;
-  const categoryMissingExcludedProductCount = new Set(categoryMissingExcludedRows.map(row => row.productId)).size;
   return `
     <div class="card" style="margin-top:20px">
       <h3 style="margin-bottom:12px">Google Merchant変換結果（集計）</h3>
@@ -11796,21 +11964,20 @@ function renderColormeMerchantSummary(mr) {
       <p style="font-weight:600;margin-top:12px">在庫あり・掲載不可（新規）</p>
       <p>在庫あり・掲載不可：${s.product.inStockRejectedProductCount}商品 / ${s.inStockRejectedRowCount}行</p>
       <p class="idea-plan-note">掲載不可の商品のうち、商品内に1件以上「在庫あり（in_stock）」のバリエーションが存在する商品です（全サイズ完売の商品は含みません）。優先的に修正できるよう画面表示のみで抽出しています。判定ロジック・TSV・監査CSVには影響しません。</p>
-      <p style="font-weight:600;margin-top:12px">Google商品カテゴリ未設定によるTSV除外（新規）</p>
+      <p style="font-weight:600;margin-top:12px">Google商品カテゴリ未設定商品の監視（2026-07-25にTSV除外を廃止）</p>
       <p>TSV対象件数：${tsvRowCount}行</p>
-      <p>カテゴリ未設定件数：${s.categoryMissingProductCount}商品</p>
-      <p>除外件数：${categoryMissingExcludedProductCount}商品 / ${categoryMissingExcludedRowCount}行</p>
-      <p class="idea-plan-note">Google商品カテゴリ（google_product_category）が空欄の行はGoogle Merchant用TSVへ出力しません（判定ロジック・掲載不可件数には影響しません）。除外された商品は引き続き下記「Google商品カテゴリ未設定商品」一覧・CSVで確認できます。監査CSVには除外の有無にかかわらず全件記録されます。</p>
+      <p>カテゴリ未設定件数：${s.categoryMissingProductCount}商品 / ${categoryMissingExcludedRowCount}行</p>
+      <p class="idea-plan-note">Google商品カテゴリ（google_product_category）が空欄の行も、他の掲載条件を満たしていればGoogle Merchant用TSVへ引き続き出力します（2026-07-25以前はここで除外していましたが廃止しました）。カテゴリが空欄の商品は下記「Google商品カテゴリ未設定商品」一覧・CSVで引き続き確認できます。監査CSVにも全件記録されます。</p>
       <p style="font-weight:600;margin-top:12px">ダウンロード前の安全確認</p>
       <p>出力されない商品数（全行掲載不可）：${s.product.productsAllRejected}件</p>
       <p>重複ID件数：${s.duplicateIdRowCount}件</p>
       <p>必須項目不足件数：${s.requiredFieldMissingCount}件</p>
-      <p class="idea-plan-note">掲載不可行はTSVへ含めません。掲載可能・注意あり・掲載可能の行のうち、全サイズ完売商品・Google商品カテゴリ未設定の行を除いた行を出力します（チェックボックスOFF時）。</p>
+      <p class="idea-plan-note">掲載不可行はTSVへ含めません。掲載可能・注意あり・掲載可能の行のうち、全サイズ完売商品を除いた行を出力します（チェックボックスOFF時）。Google商品カテゴリが空欄の行は除外しません（2026-07-25廃止）。</p>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="downloadColormeMerchantTsv()" ${canDownloadTsv ? '' : 'disabled'}>Google Merchant用TSVをダウンロード</button>
         <button class="btn" onclick="downloadColormeAuditCsv()">掲載不可・注意内容をCSVでダウンロード</button>
       </div>
-      <p class="idea-plan-note" style="margin-top:8px">※Google商品カテゴリ未設定の商品は自動的に除外されます。</p>
+      <p class="idea-plan-note" style="margin-top:8px">※Google商品カテゴリ未設定の商品も除外されません（2026-07-25廃止）。</p>
       ${canDownloadTsv ? '' : '<p class="idea-plan-note" style="margin-top:8px;color:var(--danger)">出力TSV行数が0件のため、TSVダウンロードは無効です。</p>'}
       <details style="margin-top:16px">
         <summary style="cursor:pointer;font-weight:600">掲載設定による除外（商品単位・${s.publishExclusion.total}件）</summary>
@@ -11836,7 +12003,7 @@ function renderColormeCategoryMissingList(categoryMissingProducts) {
   return `
     <div class="card" style="margin-top:20px">
       <h3 style="margin-bottom:12px">Google商品カテゴリ未設定商品：${categoryMissingProducts.length}件</h3>
-      <p class="idea-plan-note">出力対象（掲載可能・注意あり・掲載可能）の行のうち、広告用カテゴリーIDが空欄の商品を商品ID単位で重複なく一覧化しています。</p>
+      <p class="idea-plan-note">出力対象（掲載可能・注意あり・掲載可能）の行のうち、大カテゴリー・小カテゴリーからGoogle公式カテゴリIDを判定できなかった商品を商品ID単位で重複なく一覧化しています（これらの商品もTSVには出力されます）。</p>
       <div style="margin-top:12px">
         <button class="btn" onclick="downloadColormeCategoryMissingCsv()" ${canDownload ? '' : 'disabled'}>Google商品カテゴリ未設定一覧をCSVでダウンロード</button>
       </div>
