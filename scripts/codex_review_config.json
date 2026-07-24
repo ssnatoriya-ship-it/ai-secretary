@@ -1,0 +1,23 @@
+{
+  "config_version": 1,
+  "_comment": "codex_review_helper.py専用の設定データのみを保持する。抽出ロジック・正規表現はPython側(codex_review_helper.py)に実装する。秘密情報パターン・known_safe_valuesはfinish_task_config.jsonを読み込んで再利用するため、ここには含めない。",
+
+  "recognized_file_extensions": [
+    ".html", ".py", ".js", ".ts", ".json", ".sql", ".md", ".css", ".sh", ".yml", ".yaml"
+  ],
+
+  "reference_extraction": {
+    "field_style_file_labels": ["対象ファイル", "ファイル", "file", "File"],
+    "field_style_line_labels": ["対象箇所", "行番号", "該当行", "line", "Line"],
+    "field_style_search_window_lines": 5
+  },
+
+  "heading_markers_to_detect": [
+    "### CRITICAL", "### HIGH", "### MEDIUM", "### LOW",
+    "## 総合判定", "## 指摘事項", "## 回帰確認が必要な項目", "## 良かった点"
+  ],
+
+  "diff_patch_filename": "report-finish-task-diff.patch",
+
+  "max_input_size_warning_bytes": 500000
+}

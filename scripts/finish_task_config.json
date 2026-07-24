@@ -1,0 +1,82 @@
+{
+  "_comment": "終了時チェック(scripts/finish_task.py)の設定。読み取り専用ツール用の定義のみを含み、このファイル自体もツールから書き換えられることはない。",
+  "target_files": {
+    "html": "index.html",
+    "python": "local_server.py"
+  },
+  "min_inline_script_length": 500,
+  "large_deletion_threshold_lines": 200,
+  "large_change_threshold_lines": 500,
+  "danger_patterns": {
+    "private_key": {
+      "pattern": "-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+      "label": "秘密鍵らしき文字列(BEGIN PRIVATE KEY)",
+      "mask_in_report": true
+    },
+    "openai_key": {
+      "pattern": "sk-(proj-)?[A-Za-z0-9_-]{16,}",
+      "label": "OpenAI等のAPIキーらしき文字列",
+      "mask_in_report": true
+    },
+    "aws_access_key": {
+      "pattern": "AKIA[0-9A-Z]{16}",
+      "label": "AWSアクセスキーらしき文字列",
+      "mask_in_report": true
+    },
+    "service_role": {
+      "pattern": "service_role",
+      "label": "service_roleキーらしき文字列",
+      "mask_in_report": true
+    },
+    "drop_table": {
+      "pattern": "DROP\\s+TABLE",
+      "label": "DROP TABLE",
+      "mask_in_report": false
+    },
+    "truncate": {
+      "pattern": "TRUNCATE",
+      "label": "TRUNCATE",
+      "mask_in_report": false
+    },
+    "delete_no_where": {
+      "pattern": "DELETE\\s+FROM\\s+\\S+\\s*;",
+      "label": "WHERE句のない単純なDELETE FROM",
+      "mask_in_report": false
+    },
+    "email": {
+      "pattern": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+      "label": "メールアドレスらしき文字列",
+      "mask_in_report": true
+    },
+    "phone": {
+      "pattern": "0\\d{1,4}-\\d{1,4}-\\d{3,4}",
+      "label": "電話番号らしき文字列",
+      "mask_in_report": true
+    }
+  },
+  "personal_name_watchlist": [],
+  "untracked_scan": {
+    "_comment": "git status --porcelain --untracked-files=all で列挙される未追跡ファイルのうち、ここに一致するものは内容を読まずスキップする。.gitignore対象は git 自体が既に除外するためここには含めない。",
+    "_comment_exclude_dirs": "exclude_dirsはパスの各構成要素(ディレクトリ名単体)に一致した場合に除外する。現状のfinish_task.pyはパス階層(例: 'supabase/.temp')そのものでの一致には対応していないため、'.temp'という単一のディレクトリ名で登録している。リポジトリ内で.temp という名前のディレクトリは現状supabase/.temp のみのため、実質的にsupabase/.temp を除外する効果がある。将来的に他の場所にも .temp ディレクトリが増える場合は、finish_task.py側でパス階層に対応した除外方式への変更を検討すること。",
+    "exclude_dirs": [".git", ".claude", "scripts", ".temp"],
+    "exclude_name_patterns": [
+      "report*.md",
+      "report-finish-task-diff.patch",
+      "report*.patch",
+      "index-backup-*.html",
+      "local_server-backup-*.py",
+      ".DS_Store"
+    ],
+    "exclude_extensions": [
+      ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg",
+      ".mp3", ".wav", ".m4a", ".aac", ".flac",
+      ".mp4", ".mov", ".avi", ".webm", ".mkv",
+      ".pdf", ".zip", ".gz", ".tar", ".7z", ".rar",
+      ".woff", ".woff2", ".ttf", ".otf", ".eot"
+    ],
+    "max_file_size_bytes": 2000000
+  },
+  "known_safe_values": [
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpcHZ5dnpxb2Jmd2pqYW93d2FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NjE1MjMsImV4cCI6MjA5ODIzNzUyM30.3lU1TogK3PPTvvFQ53pB_ipwzT3tIUoiI0v8G7NGci4"
+  ]
+}

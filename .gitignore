@@ -3,3 +3,4 @@
 index-backup-*.html
 local_server-backup-*.py
 report*.md
+supabase/.temp/

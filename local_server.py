@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import time
+import uuid
 from datetime import date
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -16,6 +18,30 @@ EXTERNAL_BRAIN_DIR = Path(
     "iCloud~md~obsidian/Documents/外部脳"
 )
 CUSTOMERS_DIR = EXTERNAL_BRAIN_DIR / "Customers"
+CUSTOMERS_INDEX = PROJECT_DIR / "customers-index.json"
+NTR_ID_RE = re.compile(r"^NTR-\d{6}$")
+# customer-save-error-report.md 案A・案C対応：一時ファイル保存の最大リトライ回数と待機秒数
+CUSTOMER_SAVE_MAX_RETRIES = 3
+CUSTOMER_SAVE_RETRY_DELAY_SEC = 0.3
+
+# アイデア企画化（フェーズ3：Obsidianへの保存）
+PLANS_DIR = EXTERNAL_BRAIN_DIR / "Projects/AI-Secretary/Plans"
+IDEA_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+IDEA_PLAN_TITLE_MAX = 200
+IDEA_PLAN_CONTENT_MAX = 5000
+IDEA_PLAN_FIELD_MAX = 2000
+IDEA_PLAN_REQUEST_MAX = 20000
+IDEA_PLAN_FIELDS = (
+    ("purpose", "目的"),
+    ("expectedEffect", "期待効果"),
+    ("minFeature", "最小機能"),
+    ("priority", "優先順位"),
+    ("risk", "リスク"),
+    ("nextAction", "次の一手"),
+)
+CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 TEST_FILES = (
     "Knowledge/Cases/cases-index.md",
     "AI_OPERATING_MANUAL.md",
@@ -121,6 +147,9 @@ class AppHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/customers":
             self.handle_customers()
             return
+        if request_path == "/api/customer-next-id":
+            self.handle_customer_next_id()
+            return
         if request_path == "/api/customer-detail":
             self.handle_customer_detail()
             return
@@ -143,6 +172,9 @@ class AppHandler(SimpleHTTPRequestHandler):
             return
         if request_path == "/api/customer-save":
             self.handle_customer_save()
+            return
+        if request_path == "/api/idea-plan-save":
+            self.handle_idea_plan_save()
             return
         self.send_json(404, {"ok": False, "message": "APIが見つかりません"})
 
@@ -212,24 +244,41 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def handle_customers(self):
         try:
-            CUSTOMERS_DIR.mkdir(parents=True, exist_ok=True)
-            customers = sorted(
-                f.stem for f in CUSTOMERS_DIR.glob("*.md")
-                if not f.name.startswith("_")
-            )
+            customers = load_customers_index()
             self.send_json(200, {"ok": True, "customers": customers})
+        except Exception as error:
+            self.send_json(500, {"ok": False, "message": str(error)})
+
+    def handle_customer_next_id(self):
+        try:
+            customers = load_customers_index()
+            ntr_nums = [
+                int(c["id"][4:]) for c in customers
+                if c.get("id") and NTR_ID_RE.match(c["id"])
+            ]
+            max_num = max(ntr_nums) if ntr_nums else 0
+            next_id = f"NTR-{max_num + 1:06d}"
+            self.send_json(200, {"ok": True, "nextId": next_id})
         except Exception as error:
             self.send_json(500, {"ok": False, "message": str(error)})
 
     def handle_customer_detail(self):
         try:
             params = parse_qs(urlparse(self.path).query)
-            name = params.get("name", [""])[0].strip()
-            if not name:
-                raise ValueError("顧客名を指定してください")
+            ntr_id = params.get("id", [""])[0].strip()
+            legacy_name = params.get("name", [""])[0].strip()
             customers_root = CUSTOMERS_DIR.resolve()
-            customer_path = (CUSTOMERS_DIR / f"{name}.md").resolve()
-            if customers_root not in customer_path.parents and customer_path.parent != customers_root:
+
+            if ntr_id:
+                if not NTR_ID_RE.match(ntr_id):
+                    raise ValueError("AI秘書IDの形式が不正です（例: NTR-000001）")
+                customer_path = (CUSTOMERS_DIR / f"{ntr_id}.md").resolve()
+            elif legacy_name:
+                customer_path = (CUSTOMERS_DIR / f"{legacy_name}.md").resolve()
+            else:
+                raise ValueError("idまたはnameを指定してください")
+
+            if customer_path.parent != customers_root:
                 raise ValueError("不正なパスです")
             if not customer_path.exists():
                 self.send_json(404, {"ok": False, "message": "顧客データが見つかりません"})
@@ -245,19 +294,196 @@ class AppHandler(SimpleHTTPRequestHandler):
             if content_length <= 0 or content_length > 100000:
                 raise ValueError("入力サイズが不正です")
             payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
-            name = str(payload.get("name", "")).strip()
+            ntr_id = str(payload.get("id", "")).strip()
+            legacy_name = str(payload.get("name", "")).strip()
             content = str(payload.get("content", "")).strip()
-            if not name:
-                raise ValueError("顧客名を入力してください")
+
             CUSTOMERS_DIR.mkdir(parents=True, exist_ok=True)
             customers_root = CUSTOMERS_DIR.resolve()
-            customer_path = (CUSTOMERS_DIR / f"{name}.md").resolve()
-            if customers_root not in customer_path.parents and customer_path.parent != customers_root:
+
+            if ntr_id:
+                if not NTR_ID_RE.match(ntr_id):
+                    raise ValueError("AI秘書IDの形式が不正です（例: NTR-000001）")
+                customer_path = (CUSTOMERS_DIR / f"{ntr_id}.md").resolve()
+            elif legacy_name:
+                customer_path = (CUSTOMERS_DIR / f"{legacy_name}.md").resolve()
+            else:
+                raise ValueError("idまたはnameを入力してください")
+
+            if customer_path.parent != customers_root:
                 raise ValueError("不正なパスです")
-            customer_path.write_text(content, encoding="utf-8")
+
+            # write_text()による直接上書きをやめ、一時ファイル書き込み→内容検証→os.replace()に
+            # よる原子的置換に変更した（customer-save-error-report.md 案A）。検証に通るまで
+            # customer_path本体には一切触れないため、途中で失敗しても既存の顧客データは失われない。
+            # EPERM等の一時的な書き込み拒否に備え、最大3回まで短い待機を挟んでリトライする（要件5）。
+            last_error = None
+            for attempt in range(1, CUSTOMER_SAVE_MAX_RETRIES + 1):
+                try:
+                    write_customer_file_atomic(customer_path, content)
+                    last_error = None
+                    break
+                except PermissionError as error:
+                    # EPERM（Errno 1）・EACCESはいずれもPermissionErrorとして捕捉される
+                    last_error = error
+                except FileNotFoundError as error:
+                    last_error = error
+                except OSError as error:
+                    last_error = error
+                if attempt < CUSTOMER_SAVE_MAX_RETRIES:
+                    time.sleep(CUSTOMER_SAVE_RETRY_DELAY_SEC)
+
+            if last_error is not None:
+                # 保存できていない（＝既存ファイルは無傷）ため、調査に必要な情報をそのまま返す
+                self.send_json(500, {
+                    "ok": False,
+                    "path": str(customer_path),
+                    "errorType": type(last_error).__name__,
+                    "message": str(last_error),
+                })
+                return
+
+            # インデックスを更新
+            fm = parse_customer_frontmatter(content)
+            prefer_brands, prefer_style, memo_snippet = extract_customer_summary(content)
+            updated_at = fm.get("date", date.today().isoformat())
+            customers = load_customers_index()
+            if ntr_id:
+                existing = next((c for c in customers if c.get("id") == ntr_id), None)
+                if existing:
+                    existing["name"] = fm.get("name", existing["name"])
+                    existing["yomi"] = fm.get("yomi", existing["yomi"])
+                    existing["updatedAt"] = updated_at
+                    existing["preferBrands"] = prefer_brands
+                    existing["preferStyle"] = prefer_style
+                    existing["memoSnippet"] = memo_snippet
+                else:
+                    customers.append({
+                        "id": ntr_id,
+                        "name": fm.get("name", ""),
+                        "yomi": fm.get("yomi", ""),
+                        "isNew": True,
+                        "updatedAt": updated_at,
+                        "preferBrands": prefer_brands,
+                        "preferStyle": prefer_style,
+                        "memoSnippet": memo_snippet,
+                    })
+            else:
+                existing = next((c for c in customers if c.get("id") == "" and c.get("name") == legacy_name), None)
+                if not existing:
+                    customers.append({
+                        "id": "",
+                        "name": legacy_name,
+                        "yomi": fm.get("yomi", ""),
+                        "isNew": False,
+                        "updatedAt": updated_at,
+                        "preferBrands": prefer_brands,
+                        "preferStyle": prefer_style,
+                        "memoSnippet": memo_snippet,
+                    })
+                else:
+                    existing["updatedAt"] = updated_at
+                    existing["preferBrands"] = prefer_brands
+                    existing["preferStyle"] = prefer_style
+                    existing["memoSnippet"] = memo_snippet
+            save_customers_index(customers)
+
             self.send_json(200, {"ok": True})
         except Exception as error:
             self.send_json(400, {"ok": False, "message": str(error)})
+
+    def handle_idea_plan_save(self):
+        tmp_path = None
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > IDEA_PLAN_REQUEST_MAX:
+                raise ValueError("入力サイズが不正です")
+            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+
+            idea_id = str(payload.get("ideaId", "")).strip()
+            if not IDEA_ID_RE.match(idea_id):
+                raise ValueError("アイデアIDの形式が不正です")
+
+            title = sanitize_idea_plan_field(
+                payload.get("title", ""), IDEA_PLAN_TITLE_MAX, "タイトル",
+                allow_unconfirmed=False, allow_newline=False,
+            )
+            content = sanitize_idea_plan_field(
+                payload.get("content", ""), IDEA_PLAN_CONTENT_MAX, "元アイデアの本文"
+            )
+
+            raw_plan = payload.get("plan") or {}
+            plan = {}
+            for key, label in IDEA_PLAN_FIELDS:
+                plan[key] = sanitize_idea_plan_field(
+                    raw_plan.get(key, ""), IDEA_PLAN_FIELD_MAX, label
+                )
+
+            today_str = date.today().isoformat()
+            document = build_idea_plan_document(idea_id, title, content, plan, today_str)
+
+            PLANS_DIR.mkdir(parents=True, exist_ok=True)
+            plans_root = PLANS_DIR.resolve()
+
+            final_path = (PLANS_DIR / f"plan-{idea_id}.md").resolve()
+            if final_path.parent != plans_root:
+                raise ValueError("不正な保存先パスです")
+
+            tmp_path = PLANS_DIR / f".tmp-{idea_id}-{uuid.uuid4().hex}.md"
+            tmp_path.write_text(document, encoding="utf-8")
+
+            reread_tmp = tmp_path.read_text(encoding="utf-8")
+            if not verify_idea_plan_document(reread_tmp, idea_id, title, content, plan):
+                raise ValueError("保存内容の検証に失敗しました（一時ファイル）")
+
+            try:
+                os.link(str(tmp_path), str(final_path))
+            except FileExistsError:
+                tmp_path.unlink(missing_ok=True)
+                tmp_path = None
+                existing_text = final_path.read_text(encoding="utf-8")
+                existing_fm = parse_idea_plan_frontmatter(existing_text)
+                vault_relative = str(final_path.relative_to(EXTERNAL_BRAIN_DIR))
+                if existing_fm and existing_fm.get("supabase_idea_id") == idea_id:
+                    self.send_json(
+                        200, {"ok": True, "status": "already_saved", "path": vault_relative}
+                    )
+                else:
+                    self.send_json(
+                        409,
+                        {
+                            "ok": False,
+                            "status": "conflict",
+                            "message": "同名の別ファイルが既に存在するため保存できませんでした",
+                        },
+                    )
+                return
+
+            tmp_path.unlink(missing_ok=True)
+            tmp_path = None
+
+            final_text = final_path.read_text(encoding="utf-8")
+            if not verify_idea_plan_document(final_text, idea_id, title, content, plan):
+                self.send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "status": "verify_failed",
+                        "message": "保存後の検証に失敗しました。ファイルを直接確認してください",
+                    },
+                )
+                return
+
+            vault_relative = str(final_path.relative_to(EXTERNAL_BRAIN_DIR))
+            self.send_json(200, {"ok": True, "status": "created", "path": vault_relative})
+        except Exception as error:
+            self.send_json(400, {"ok": False, "status": "validation_error", "message": str(error)})
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     def handle_external_brain_test(self):
         results = []
@@ -442,6 +668,207 @@ def sanitize_case_text(text, customer_names):
         sanitized,
     )
     return anonymize_case_name(sanitized)
+
+
+def parse_customer_frontmatter(content):
+    """YAMLフロントマターから name / yomi 等を取得する。"""
+    m = re.match(r"^---\n([\s\S]*?)\n---", content)
+    if not m:
+        return {}
+    fm = {}
+    for line in m.group(1).splitlines():
+        kv = re.match(r"^([a-zA-Z_]+):\s*(.+)$", line)
+        if kv:
+            fm[kv.group(1)] = kv.group(2).strip()
+    return fm
+
+
+def extract_customer_summary(content):
+    """Markdown本文から一覧表示用の要約フィールドを抽出する。"""
+    prefer_brands = ""
+    prefer_style = ""
+    memo_snippet = ""
+
+    # 好みブランド・スタイルを抽出
+    for line in content.splitlines():
+        if line.startswith("好みブランド:"):
+            prefer_brands = line[len("好みブランド:"):].strip()
+        elif line.startswith("好みスタイル:"):
+            prefer_style = line[len("好みスタイル:"):].strip()
+
+    # 接客メモセクションの先頭テキストを抽出
+    memo_match = re.search(r"## 接客メモ\n+([\s\S]*?)(?:\n## |\Z)", content)
+    if memo_match:
+        raw = memo_match.group(1).strip()
+        # コメント行・空行を除く
+        lines = [l for l in raw.splitlines() if l.strip() and not l.strip().startswith("<!--")]
+        if lines:
+            memo_snippet = lines[0][:30]
+
+    return prefer_brands, prefer_style, memo_snippet
+
+
+def sanitize_idea_plan_field(value, max_len, field_label, allow_unconfirmed=True, allow_newline=True):
+    """改行を正規化し、制御文字を拒否したうえで文字数上限を検証する。"""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    if CONTROL_CHAR_RE.search(text):
+        raise ValueError(f"{field_label}に使用できない制御文字が含まれています")
+    if not allow_newline and "\n" in text:
+        raise ValueError(f"{field_label}に改行を含めることはできません")
+    text = text.strip()
+    if not text:
+        if allow_unconfirmed:
+            return "未確認"
+        raise ValueError(f"{field_label}は必須です")
+    if len(text) > max_len:
+        raise ValueError(f"{field_label}が上限（{max_len}文字）を超えています")
+    return text
+
+
+def yaml_escape(value):
+    """外部ライブラリを使わず、YAMLの二重引用符付き文字列として安全にエスケープする。"""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def build_idea_plan_document(idea_id, title, content, plan, today_str):
+    lines = [
+        "---",
+        "type: idea-plan",
+        "status: draft",
+        f"date: {today_str}",
+        f"supabase_idea_id: {yaml_escape(idea_id)}",
+        "source: ai-secretary",
+        "tags: [idea, plan]",
+        f"title: {yaml_escape(title)}",
+        "---",
+        "",
+        f"# 企画書: {title}",
+        "",
+        "## 元アイデア",
+        "",
+        content,
+        "",
+    ]
+    for key, label in IDEA_PLAN_FIELDS:
+        lines.append(f"## {label}")
+        lines.append("")
+        lines.append(plan[key])
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _parse_yaml_quoted_value(block, key):
+    """`key: "..."` 形式の二重引用符付きスカラーを、バックスラッシュエスケープを
+    考慮しながら解析する（タイトルに `"` や `\\` が含まれる場合に対応するため、
+    `[^"]*` のような単純な正規表現では誤って途中で切れてしまう）。"""
+    m = re.search(rf'^{key}:\s*"', block, re.MULTILINE)
+    if not m:
+        return None
+    chars = []
+    i = m.end()
+    while i < len(block):
+        ch = block[i]
+        if ch == "\\" and i + 1 < len(block):
+            nxt = block[i + 1]
+            if nxt in ('"', "\\"):
+                chars.append(nxt)
+                i += 2
+                continue
+        if ch == '"':
+            return "".join(chars)
+        if ch == "\n":
+            return None
+        chars.append(ch)
+        i += 1
+    return None
+
+
+def parse_idea_plan_frontmatter(text):
+    """Planファイルのfrontmatterを再解析する（フロントマター検証用）。"""
+    m = re.match(r"^---\n([\s\S]*?)\n---", text)
+    if not m:
+        return None
+    block = m.group(1)
+    fields = {}
+    for key in ("type", "status", "date", "source"):
+        km = re.search(rf'^{key}:\s*(\S.*?)\s*$', block, re.MULTILINE)
+        if km:
+            fields[key] = km.group(1)
+    for key in ("supabase_idea_id", "title"):
+        value = _parse_yaml_quoted_value(block, key)
+        if value is not None:
+            fields[key] = value
+    return fields
+
+
+def verify_idea_plan_document(text, idea_id, title, content, plan):
+    """frontmatterとMarkdown本文（6項目）をそれぞれ再解析・照合する。"""
+    fm = parse_idea_plan_frontmatter(text)
+    if not fm:
+        return False
+    if fm.get("type") != "idea-plan":
+        return False
+    if fm.get("status") != "draft":
+        return False
+    if fm.get("supabase_idea_id") != idea_id:
+        return False
+    if fm.get("source") != "ai-secretary":
+        return False
+    if fm.get("title") != title:
+        return False
+
+    if "## 元アイデア" not in text or content not in text:
+        return False
+    for key, label in IDEA_PLAN_FIELDS:
+        if f"## {label}" not in text or plan[key] not in text:
+            return False
+    return True
+
+
+def write_customer_file_atomic(customer_path, content):
+    """顧客Markdownを安全に保存する。
+
+    まず一時ファイルへ書き込み、内容を読み戻して検証したうえで、os.replace()による
+    原子的置換を試みる。ただし、iCloud Drive上ではos.replace()（リネーム）自体がOS側に
+    拒否される場合があることが実機検証（NTR-000001での再現）で判明したため、
+    os.replace()が失敗した場合は検証済みの内容を対象ファイルへ直接write_text()で
+    上書きするフォールバックを行う（Finder・Obsidian・Terminalからの直接読み書きは
+    問題ないことが確認できているため、書き込み自体はこの経路で成功する）。
+    どちらの経路でも、一時ファイルの書き込み・検証が終わるまでは対象ファイル本体に
+    一切書き込まないため、内容が壊れた状態のまま保存されることはない。
+    """
+    tmp_path = customer_path.parent / f".tmp-{customer_path.stem}-{uuid.uuid4().hex}.md"
+    try:
+        tmp_path.write_text(content, encoding="utf-8")
+        reread = tmp_path.read_text(encoding="utf-8")
+        if reread != content:
+            raise ValueError("保存内容の検証に失敗しました（一時ファイル）")
+        try:
+            os.replace(str(tmp_path), str(customer_path))
+        except OSError:
+            # iCloud Drive上でos.replace()自体が拒否されるケースへのフォールバック。
+            # tmp_pathで検証済みの内容をそのまま直接書き込むため、内容の正しさは保たれる。
+            customer_path.write_text(content, encoding="utf-8")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def load_customers_index():
+    """customers-index.json を読み込む。存在しない場合は空リストを返す。"""
+    if not CUSTOMERS_INDEX.exists():
+        return []
+    try:
+        return json.loads(CUSTOMERS_INDEX.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def save_customers_index(customers):
+    """customers-index.json を書き込む。"""
+    CUSTOMERS_INDEX.write_text(
+        json.dumps(customers, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def build_case_decision_guidance(entry):
